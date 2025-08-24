@@ -8,6 +8,7 @@ Package queue của bko-bankpkg cung cấp một interface HTTP để quản lý
 type HTTP interface {
     String() string
     SetPriorityMode(mode Priority)
+    SetMaxConcurrent(maxConcurrent int)
     
     Get(ctx context.Context, v any, opts ...Option) error
     Post(ctx context.Context, v any, body []byte, opts ...Option) error
@@ -30,6 +31,12 @@ Interface `HTTP` là giao diện chính của package, cung cấp các phương 
 - Hỗ trợ các chế độ:
   - `PriorityFrequency`: Ưu tiên theo tần suất sử dụng
   - `PriorityLatency`: Ưu tiên theo thời gian phản hồi
+
+#### `SetMaxConcurrent(maxConcurrent int)`
+
+- Thiết lập số lượng request tối đa có thể thực hiện đồng thời
+- Tham số:
+  - `maxConcurrent`: Số lượng request tối đa. Giá trị 0 nghĩa là không giới hạn
 
 #### `Get(ctx context.Context, v any, opts ...Option) error`
 
@@ -97,7 +104,13 @@ type httpQueue struct {
    - Kết quả trả về qua channel trong struct `recv`
    - Hỗ trợ xử lý lỗi và timeout thông qua `context`
 
-4. **Xử lý lỗi thông minh**:
+4. **Kiểm soát lưu lượng**:
+   - Giới hạn số lượng request đồng thời thông qua semaphore
+   - Hai cách thiết lập giới hạn:
+     - Sử dụng phương thức `SetMaxConcurrent()`
+     - Truyền tùy chọn `WithMaxConcurrent()` cho mỗi request
+
+5. **Xử lý lỗi thông minh**:
    - Cơ chế "lazy loading" được triển khai qua `lazyGuys()` để xử lý lỗi khởi tạo
    - Tự động xác thực URL và các tham số khác trước khi xử lý
 
@@ -110,6 +123,7 @@ type Option struct {
     XHeader      map[string]string
     ContentType  string
     AcceptStatus []int
+    MaxConcurrent int
 }
 ```
 
@@ -120,6 +134,7 @@ type Option struct {
 - `WithContentType(contentType string) Option`: Thiết lập content type
 - `WithBasicAuth(username, password string) Option`: Thiết lập xác thực Basic
 - `AcceptStatus(status ...int) Option`: Thiết lập danh sách mã trạng thái HTTP được chấp nhận
+- `WithMaxConcurrent(maxConcurrent int) Option`: Thiết lập số lượng request tối đa đồng thời
 
 ## Ví dụ sử dụng
 
@@ -147,6 +162,9 @@ func main() {
     // Thiết lập chế độ ưu tiên theo độ trễ
     httpQueue.SetPriorityMode(queue.PriorityLatency)
     
+    // Thiết lập giới hạn tối đa 10 request đồng thời
+    httpQueue.SetMaxConcurrent(10)
+    
     // Thực hiện GET request
     var response Response
     ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -154,7 +172,8 @@ func main() {
     
     err := httpQueue.Get(ctx, &response, 
         queue.WithBasicAuth("username", "password"),
-        queue.AcceptStatus(http.StatusOK, http.StatusCreated))
+        queue.AcceptStatus(http.StatusOK, http.StatusCreated),
+        queue.WithMaxConcurrent(5)) // Thiết lập giới hạn riêng cho request này
     
     if err != nil {
         fmt.Printf("Error: %v\n", err)
@@ -172,5 +191,6 @@ func main() {
 3. **Tùy biến cao**: Nhiều tùy chọn cho các request
 4. **Xử lý lỗi mạnh mẽ**: Tích hợp với context Go để hủy request
 5. **Gỡ lỗi chi tiết**: Nhiều thông báo debug để theo dõi hoạt động
+6. **Kiểm soát lưu lượng**: Khả năng giới hạn số lượng request đồng thời
 
 Package này được thiết kế để xử lý các HTTP request một cách mạnh mẽ, với khả năng sao lưu và quản lý ưu tiên, phù hợp cho các ứng dụng cần độ tin cậy cao khi giao tiếp với các API bên ngoài.

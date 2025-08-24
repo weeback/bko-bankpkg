@@ -21,6 +21,9 @@ var (
 
 type queueInter interface {
 	setPriorityMode(mode Priority)
+	setTimeout(d time.Duration)
+	updateMaxConcurrent(maxConcurrent int)
+	getConcurrentStatus() (int, int, string) 
 	listen(method string, fullURL string, body []byte, opt Option) <-chan *recv
 }
 
@@ -69,7 +72,9 @@ func bindHttpQueue(name string, desc ...*url.URL) queueInter {
 				Timeout: 30 * time.Second,
 			}
 		},
-		timeout: 30 * time.Second,
+		timeout:       30 * time.Second,
+		maxConcurrent: 1000, // Mặc định 1000 req/s
+		activeSem:     nil,  // Sẽ được khởi tạo khi cần
 	}
 	//
 	// the queue with URL of the primary server (must be matched queueName)

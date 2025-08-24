@@ -1,5 +1,7 @@
 package queue
 
+import "time"
+
 func lazyGuys() queueInter {
 	return &lazy{}
 
@@ -12,6 +14,14 @@ func lazyGuys() queueInter {
 type lazy struct{}
 
 func (*lazy) setPriorityMode(mode Priority) {}
+
+func (*lazy) setTimeout(d time.Duration) {}
+
+func (*lazy) updateMaxConcurrent(maxConcurrent int) {}
+
+func (*lazy) getConcurrentStatus() (int, int, string) {
+	return 0, 0, "FREE"
+}
 
 func (*lazy) listen(string, string, []byte, Option) <-chan *recv {
 	return nil

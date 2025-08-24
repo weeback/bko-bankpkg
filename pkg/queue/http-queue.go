@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"reflect"
 	"slices"
+	"time"
 
 	"github.com/weeback/bko-bankpkg/pkg/log"
 )
@@ -15,6 +16,9 @@ import (
 type HTTP interface {
 	String() string
 	SetPriorityMode(mode Priority)
+	SetRequestTimeout(timeout time.Duration)
+	SetMaxConcurrent(maxConcurrent int)                        // Thiết lập số lượng request tối đa đồng thời
+	GetConcurrentStatus() (free int, total int, status string) // Lấy trạng thái hiện tại của việc xử lý đồng thời
 
 	Get(ctx context.Context, v any, opts ...Option) error
 	Post(ctx context.Context, v any, body []byte, opts ...Option) error
@@ -104,6 +108,37 @@ func (q *httpQueue) SetPriorityMode(mode Priority) {
 		return
 	}
 	q.queue.setPriorityMode(mode)
+}
+
+func (q *httpQueue) SetRequestTimeout(d time.Duration) {
+	fmt.Printf("%s httpQueue.SetRequestTimeout(%v) called\n", log.LogPrefixWith("[SYS-debug]"), d)
+
+	// validate data before processing
+	if err := q.validate(); err != nil {
+		fmt.Printf("%s httpQueue.SetRequestTimeout() error: %v\n", log.LogPrefixWith("[SYS-debug]"), err)
+		return
+	}
+
+	// Cập nhật worker với giá trị timeout mới
+	q.queue.setTimeout(d)
+}
+
+// SetMaxConcurrent thiết lập số lượng request tối đa có thể thực hiện đồng thời
+func (q *httpQueue) SetMaxConcurrent(maxConcurrent int) {
+	fmt.Printf("%s httpQueue.SetMaxConcurrent(%d) called\n", log.LogPrefixWith("[SYS-debug]"), maxConcurrent)
+
+	// validate data before processing
+	if err := q.validate(); err != nil {
+		fmt.Printf("%s httpQueue.SetMaxConcurrent() error: %v\n", log.LogPrefixWith("[SYS-debug]"), err)
+		return
+	}
+
+	// Cập nhật worker với giá trị giới hạn mới
+	q.queue.updateMaxConcurrent(maxConcurrent)
+}
+
+func (q *httpQueue) GetConcurrentStatus() (free int, total int, status string) {
+	return q.queue.getConcurrentStatus()
 }
 
 func (q *httpQueue) Get(ctx context.Context, v any, opts ...Option) error {
