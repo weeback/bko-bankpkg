@@ -45,6 +45,7 @@ func (ins Logger) Set(key string, value any) {
 }
 
 func (l Logger) JsonEncode() string {
+	l.Set("line", line())
 	json, _ := json.Marshal(l)
 	return string(json)
 }
