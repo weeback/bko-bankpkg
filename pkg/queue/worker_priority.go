@@ -149,41 +149,41 @@ func (w *worker) voteLatency() (label string, voted *url.URL) {
 // freeCounter : free the counter for the server.
 // this function is same as setLastTook()
 func (w *worker) freeCounter(label string, took time.Duration) {
-	// Kiểm tra nil pointer
+	// Check for nil pointer
 	if w == nil || w.primaryServer == nil {
 		return
 	}
 
-	// Kiểm tra tham số đầu vào
+	// Check input parameters
 	if label == "" {
 		return
 	}
 
-	// Tạo slice mới để tránh race condition khi append
+	// Create a new slice to avoid race condition when appending
 	servers := make([]*counter, 0, len(w.primaryServer)+len(w.secondaryServerList))
 	servers = append(servers, w.primaryServer...)
 	servers = append(servers, w.secondaryServerList...)
 
 	for _, val := range servers {
-		// Kiểm tra nil pointer
+		// Check for nil pointer
 		if val == nil {
 			continue
 		}
 
-		// Đặt thời gian reset phù hợp
+		// Set appropriate reset duration
 		resetDuration := w.timeout
 		if val.took < w.timeout {
 			resetDuration = 5 * time.Second
 		}
 
-		// Reset took nếu cần
+		// Reset took if needed
 		val.resetTookIfNeeded(resetDuration)
 
 		//
 		if val.label == label {
 			// Decrease the counter
 			val.decreasing()
-			// Cập nhật took và thời gian
+			// Update took and time
 			val.tookWithLabel(label, took)
 		}
 	}
@@ -191,37 +191,37 @@ func (w *worker) freeCounter(label string, took time.Duration) {
 
 // setLastTook: set the last took time for the server
 func (w *worker) setLastTook(label string, took time.Duration) {
-	// Kiểm tra nil pointer
+	// Check for nil pointer
 	if w == nil || w.primaryServer == nil {
 		return
 	}
 
-	// Kiểm tra tham số đầu vào
+	// Check input parameters
 	if label == "" || took < 0 {
 		return
 	}
 
-	// Tạo slice mới để tránh race condition khi append
+	// Create a new slice to avoid race condition when appending
 	servers := make([]*counter, 0, len(w.primaryServer)+len(w.secondaryServerList))
 	servers = append(servers, w.primaryServer...)
 	servers = append(servers, w.secondaryServerList...)
 
 	for _, val := range servers {
-		// Kiểm tra nil pointer
+		// Check for nil pointer
 		if val == nil {
 			continue
 		}
 
-		// Đặt thời gian reset phù hợp
+		// Set appropriate reset duration
 		resetDuration := w.timeout
 		if val.took < w.timeout {
 			resetDuration = 5 * time.Second
 		}
 
-		// Reset took nếu cần
+		// Reset took if needed
 		val.resetTookIfNeeded(resetDuration)
 
-		// Cập nhật took và thời gian
+		// Update took and time
 		val.tookWithLabel(label, took)
 	}
 }

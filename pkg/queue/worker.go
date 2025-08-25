@@ -24,9 +24,9 @@ type worker struct {
 	httpClient func() *http.Client
 	timeout    time.Duration
 
-	// Kiểm soát lưu lượng request
-	activeSem     chan struct{} // Semaphore để giới hạn số lượng request đồng thời
-	maxConcurrent int           // Số lượng request tối đa có thể thực hiện đồng thời
+	// Rate limiting control
+	activeSem     chan struct{} // Semaphore to limit the number of concurrent requests
+	maxConcurrent int           // Maximum number of concurrent requests
 
 	// Deprecated
 	// primaryDesc   *url.URL
@@ -217,12 +217,12 @@ func (w *worker) call(work *job) recv {
 	ctx, cancel := context.WithTimeout(context.TODO(), w.timeout)
 	defer cancel()
 
-	// Lấy slot từ semaphore nếu có giới hạn lưu lượng
-	release, err := w.acquireSemaphore(w.timeout / 2) // Sử dụng nửa timeout cho việc chờ slot
+	// Acquire a slot from semaphore if rate limiting is enabled
+	release, err := w.acquireSemaphore(w.timeout / 2) // Use half of timeout for waiting for a slot
 	if err != nil {
 		return recv{err: err}
 	}
-	// Đảm bảo sẽ giải phóng slot khi hàm kết thúc
+	// Make sure to release the slot when function completes
 	defer release()
 
 	switch work.method {

@@ -17,8 +17,8 @@ type HTTP interface {
 	String() string
 	SetPriorityMode(mode Priority)
 	SetRequestTimeout(timeout time.Duration)
-	SetMaxConcurrent(maxConcurrent int)                        // Thiết lập số lượng request tối đa đồng thời
-	GetConcurrentStatus() (free int, total int, status string) // Lấy trạng thái hiện tại của việc xử lý đồng thời
+	SetMaxConcurrent(maxConcurrent int)                        // Set maximum number of concurrent requests
+	GetConcurrentStatus() (free int, total int, status string) // Get the current status of concurrent processing
 
 	Get(ctx context.Context, v any, opts ...Option) error
 	Post(ctx context.Context, v any, body []byte, opts ...Option) error
@@ -119,11 +119,11 @@ func (q *httpQueue) SetRequestTimeout(d time.Duration) {
 		return
 	}
 
-	// Cập nhật worker với giá trị timeout mới
+	// Update worker with new timeout value
 	q.queue.setTimeout(d)
 }
 
-// SetMaxConcurrent thiết lập số lượng request tối đa có thể thực hiện đồng thời
+// SetMaxConcurrent sets the maximum number of concurrent requests
 func (q *httpQueue) SetMaxConcurrent(maxConcurrent int) {
 	fmt.Printf("%s httpQueue.SetMaxConcurrent(%d) called\n", log.LogPrefixWith("[SYS-debug]"), maxConcurrent)
 
@@ -133,7 +133,7 @@ func (q *httpQueue) SetMaxConcurrent(maxConcurrent int) {
 		return
 	}
 
-	// Cập nhật worker với giá trị giới hạn mới
+	// Update worker with new limit value
 	q.queue.updateMaxConcurrent(maxConcurrent)
 }
 

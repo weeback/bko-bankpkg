@@ -9,6 +9,7 @@ type HTTP interface {
     String() string
     SetPriorityMode(mode Priority)
     SetMaxConcurrent(maxConcurrent int)
+    GetConcurrentStatus() (free int, total int, status string) // Get the current status of concurrent processing
     
     Get(ctx context.Context, v any, opts ...Option) error
     Post(ctx context.Context, v any, body []byte, opts ...Option) error
@@ -38,6 +39,18 @@ Interface `HTTP` là giao diện chính của package, cung cấp các phương 
 - Tham số:
   - `maxConcurrent`: Số lượng request tối đa. Giá trị 0 nghĩa là không giới hạn
 
+#### `GetConcurrentStatus() (free int, limit int, status string)`
+
+- Trả về trạng thái của hàng đợi xử lý đồng thời tại thời điểm được gọi
+- Các giá trị:
+  - `free`: Số lượng sẵn sàng
+  - `limit`: Giới hạn đồng thời đã thiết lập. Giá trị 0 nghĩa là không giới hạn
+  - `status`: thể hiện các trạng thái của hàng đợi, cụ thể:
+    - `FREE` - All slots are free;
+    - `AVAILABLE` - Many slots are free;
+    - `BUSY` - Some slots are free;
+    - `OCCUPIED` - All slots are occupied;
+
 #### `Get(ctx context.Context, v any, opts ...Option) error`
 
 - Thực hiện HTTP GET request
@@ -62,10 +75,10 @@ Interface `HTTP` là giao diện chính của package, cung cấp các phương 
 Package cung cấp hai hàm khởi tạo:
 
 ```go
-// Tạo queue với một máy chủ
+// Create a queue with a single server
 func NewHttpQueue(name, fullURL string) HTTP
 
-// Tạo queue với nhiều máy chủ sao lưu
+// Create a queue with multiple backup servers
 func NewHttpQueueWithMultiHost(name, fullURL string, hosts ...*url.URL) HTTP
 ```
 
@@ -81,9 +94,9 @@ Interface `HTTP` được triển khai bởi struct `httpQueue` với các thàn
 
 ```go
 type httpQueue struct {
-    templateURL *url.URL   // URL mẫu
-    err         error      // Lưu trữ lỗi
-    queue       queueInter // Đối tượng quản lý hàng đợi
+    templateURL *url.URL   // Template URL
+    err         error      // Error storage
+    queue       queueInter // Queue management object
 }
 ```
 
@@ -123,7 +136,6 @@ type Option struct {
     XHeader      map[string]string
     ContentType  string
     AcceptStatus []int
-    MaxConcurrent int
 }
 ```
 
@@ -134,7 +146,6 @@ type Option struct {
 - `WithContentType(contentType string) Option`: Thiết lập content type
 - `WithBasicAuth(username, password string) Option`: Thiết lập xác thực Basic
 - `AcceptStatus(status ...int) Option`: Thiết lập danh sách mã trạng thái HTTP được chấp nhận
-- `WithMaxConcurrent(maxConcurrent int) Option`: Thiết lập số lượng request tối đa đồng thời
 
 ## Ví dụ sử dụng
 
@@ -156,16 +167,16 @@ type Response struct {
 }
 
 func main() {
-    // Tạo một HTTP queue mới
+    // Create a new HTTP queue
     httpQueue := queue.NewHttpQueue("api-service", "https://api.example.com/data")
     
-    // Thiết lập chế độ ưu tiên theo độ trễ
+    // Set priority mode to latency
     httpQueue.SetPriorityMode(queue.PriorityLatency)
     
-    // Thiết lập giới hạn tối đa 10 request đồng thời
+    // Set maximum concurrent requests to 10
     httpQueue.SetMaxConcurrent(10)
     
-    // Thực hiện GET request
+    // Perform GET request
     var response Response
     ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
     defer cancel()
@@ -173,7 +184,6 @@ func main() {
     err := httpQueue.Get(ctx, &response, 
         queue.WithBasicAuth("username", "password"),
         queue.AcceptStatus(http.StatusOK, http.StatusCreated),
-        queue.WithMaxConcurrent(5)) // Thiết lập giới hạn riêng cho request này
     
     if err != nil {
         fmt.Printf("Error: %v\n", err)
@@ -181,6 +191,72 @@ func main() {
     }
     
     fmt.Printf("Response: %+v\n", response)
+}
+```
+
+## Tùy chỉnh điều hướng
+
+Tính năng kiểm soát lưu lượng request và tùy chỉnh điều hướng cho phép ứng dụng chủ động xử lý ưu tiên các request quan trọng khi hệ thống bận. Việc này đặc biệt hữu ích cho các hệ thống tài chính nơi một số giao dịch (như giao dịch đơn lẻ) cần được ưu tiên xử lý trước các giao dịch khác.
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "net/http"
+    "time"
+    
+    "github.com/weeback/bko-bankpkg/pkg/queue"
+)
+
+func processRequest(httpQueue queue.HTTP, reqType string) {
+   // Check current queue status
+   free, total, status := httpQueue.GetConcurrentStatus()
+   
+   // Handle routing logic based on request type and queue status
+   // Example: If the queue is busy and the request is not a single transfer,
+   // then defer processing to prioritize single transfers
+   if status == "BUSY" && reqType != "SINGLE-TRANSFER" {
+      fmt.Printf("The queue is busy (%d/%d slots used). ", total-free, total)
+      fmt.Println("Priority processing of SINGLE-TRANSFER transaction; other transactions retry later!")
+      
+      // Can put request in another queue or schedule a retry later
+      return
+   }
+
+   // If it's a priority transaction or the queue isn't overloaded, process it
+   var response Response
+   ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+   defer cancel()
+    
+   // Execute the request
+   err := httpQueue.Get(ctx, &response, 
+      queue.WithBasicAuth("username", "password"),
+      queue.AcceptStatus(http.StatusOK, http.StatusCreated),
+   )
+   
+   if err != nil {
+      fmt.Printf("Error: %v\n", err)
+      return
+   }
+    
+   fmt.Printf("Response: %+v\n", response)
+}
+
+func main() {
+   // Initialize HTTP queue
+   httpQueue := queue.NewHttpQueue("api-service", "https://api.example.com/data")
+    
+   // Set priority mode to frequency
+   httpQueue.SetPriorityMode(queue.PriorityFrequency)
+    
+   // Set maximum concurrent requests to 10
+   httpQueue.SetMaxConcurrent(10)
+
+   // Process requests with different types
+   processRequest(httpQueue, "SINGLE-TRANSFER") // Single transfer (high priority)
+   processRequest(httpQueue, "MULTI-TRANSFER")  // Multi-person transfer (low priority)
 }
 ```
 

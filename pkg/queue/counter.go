@@ -23,9 +23,9 @@ type counter struct {
 func (c *counter) increment() {
 
 	c.mu.Lock()
-	defer c.mu.Unlock() // Sử dụng defer để đảm bảo unlock được gọi
+	defer c.mu.Unlock() // Use defer to ensure unlock is called
 
-	// Kiểm tra tràn số
+	// Check for overflow
 	if c.count == math.MaxInt {
 		c.count = 1
 		return
@@ -45,7 +45,7 @@ func (c *counter) decreasing() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	// Kiểm tra tràn số
+	// Check for underflow
 	if c.count == 0 {
 		c.count = 0
 		return

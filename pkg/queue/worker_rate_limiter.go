@@ -3,36 +3,40 @@ package queue
 import (
 	"fmt"
 	"log"
+	"math"
 	"time"
 )
 
-// updateMaxConcurrent cập nhật giới hạn số lượng request đồng thời
+// updateMaxConcurrent updates the limit of concurrent requests
 func (w *worker) updateMaxConcurrent(maxConcurrent int) {
 	if maxConcurrent <= 0 {
-		// Nếu giá trị không hợp lệ hoặc = 0 (không giới hạn), không làm gì cả
+		// If the value is invalid or = 0 (no limit), do nothing
 		return
 	}
 
-	// Nếu giá trị đã thiết lập và bằng với giá trị hiện tại, không cần thay đổi
+	// If the value is already set and equals to the current value, no need to change
 	if w.maxConcurrent == maxConcurrent && w.activeSem != nil {
 		return
 	}
 
-	// Cập nhật giới hạn mới
+	// Update new limit
 	w.maxConcurrent = maxConcurrent
 
-	// Tạo semaphore mới nếu chưa có hoặc kích thước thay đổi
+	// Create a new semaphore if it doesn't exist or size has changed
 	if w.activeSem == nil || cap(w.activeSem) != maxConcurrent {
-		// Tạo semaphore mới với kích thước mới
+		// Create a new semaphore with the new size
 		w.activeSem = make(chan struct{}, maxConcurrent)
 		log.Printf("Rate limiter updated: max concurrent requests = %d", maxConcurrent)
 	}
 }
 
 func (w *worker) getConcurrentStatus() (int, int, string) {
+	if w.maxConcurrent == 0 {
+		return math.MaxInt, 0, "FREE"
+	}
 	n := w.maxConcurrent - len(w.activeSem)
-	status := "FREE"
 	log.Printf("Current concurrent requests: %d/%d", n, w.maxConcurrent)
+	status := "FREE"
 	switch {
 	case n == w.maxConcurrent:
 		log.Printf("All slots are free")
@@ -50,29 +54,29 @@ func (w *worker) getConcurrentStatus() (int, int, string) {
 	return n, w.maxConcurrent, status
 }
 
-// acquireSemaphore lấy một slot từ semaphore, trả về hàm giải phóng
-// Trả về error nếu không thể lấy slot trong thời gian chờ
+// acquireSemaphore gets a slot from the semaphore, returns a release function
+// Returns error if unable to get a slot within the timeout period
 func (w *worker) acquireSemaphore(timeout time.Duration) (release func(), err error) {
-	// Nếu không có giới hạn, trả về hàm trống
+	// If there's no limit, return an empty function
 	if w.maxConcurrent <= 0 || w.activeSem == nil {
 		return func() {}, nil
 	}
 
-	// Thử lấy semaphore với timeout
+	// Try to acquire the semaphore with a timeout
 	select {
 	case w.activeSem <- struct{}{}:
-		// Đã lấy được slot
+		// Successfully acquired a slot
 		return func() {
-			// Hàm giải phóng slot
+			// Function to release the slot
 			select {
 			case <-w.activeSem:
-				// Đã giải phóng slot
+				// Slot released successfully
 			default:
-				// Semaphore có thể đã được đóng
+				// Semaphore might have been closed
 			}
 		}, nil
 	case <-time.After(timeout):
-		// Timeout khi chờ slot
+		// Timeout while waiting for a slot
 		return nil, fmt.Errorf("rate limit exceeded: too many concurrent requests")
 	}
 }
