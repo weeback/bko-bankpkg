@@ -2,11 +2,12 @@ package transfer
 
 import (
 	"context"
-	"fmt"
 	"sync"
 	"time"
 
+	"github.com/weeback/bko-bankpkg/pkg/logger"
 	"github.com/weeback/bko-bankpkg/pkg/queue"
+	"go.uber.org/zap"
 )
 
 type Transfer interface {
@@ -72,7 +73,9 @@ func (t *transfer) queueMultiTransferProcess() {
 	// Handle errors when processing the queue
 	defer func() {
 		if r := recover(); r != nil {
-			fmt.Printf("Recovered in multiQueueProcess: %v\n", r)
+			logger.NewEntry().Error("recovered from panic in multiQueueProcess",
+				zap.Any("recover", r),
+				zap.String(logger.KeyFunctionName, "queueMultiTransferProcess"))
 		}
 		// Restart the processor by resetting once
 		t.mu.Lock()
@@ -83,12 +86,19 @@ func (t *transfer) queueMultiTransferProcess() {
 	for q := range t.queue {
 		// Drop old packs
 		if d := time.Since(q.retriedAt); d > t.maxLiveTime {
-			fmt.Printf("multiQueueProcess: dropping pack %s after %s and %d retries\n", q.ID, d.String(), q.retry)
+			logger.NewEntry().Warn("dropping old pack in multiQueueProcess",
+				zap.String("pack_id", q.ID),
+				zap.String("duration", d.String()),
+				zap.Int("retries", q.retry),
+				zap.String(logger.KeyFunctionName, "queueMultiTransferProcess"))
 			continue
 		}
 		// Send the payload to the partner
 		if err := t.partner.Post(context.Background(), nil, q.Payload); err != nil {
-			fmt.Printf("multiQueueProcess: failed to send payload for pack %s: %v\n", q.ID, err)
+			logger.NewEntry().Error("failed to send payload in multiQueueProcess",
+				zap.String("pack_id", q.ID),
+				zap.Error(err),
+				zap.String(logger.KeyFunctionName, "queueMultiTransferProcess"))
 			// Retry logic
 			q.retry++
 			q.retriedAt = time.Now()
@@ -96,13 +106,20 @@ func (t *transfer) queueMultiTransferProcess() {
 			go func(p *Pack) {
 				select {
 				case <-t.addQueueMultiTransfer(p):
-					fmt.Printf("multiQueueProcess: re-queued pack %s for retry %d\n", p.ID, p.retry)
+					logger.NewEntry().Info("re-queued pack in multiQueueProcess",
+						zap.String("pack_id", p.ID),
+						zap.Int("retry", p.retry),
+						zap.String(logger.KeyFunctionName, "queueMultiTransferProcess"))
 				case <-time.After(QueueTimeout):
-					fmt.Printf("multiQueueProcess: dropped pack %s due to full queue\n", p.ID)
+					logger.NewEntry().Warn("dropped pack due to full queue in multiQueueProcess",
+						zap.String("pack_id", p.ID),
+						zap.String(logger.KeyFunctionName, "queueMultiTransferProcess"))
 				}
 			}(q)
 			continue
 		}
-		fmt.Printf("multiQueueProcess: successfully sent pack %s\n", q.ID)
+		logger.NewEntry().Info("successfully sent pack in multiQueueProcess",
+			zap.String("pack_id", q.ID),
+			zap.String(logger.KeyFunctionName, "queueMultiTransferProcess"))
 	}
 }

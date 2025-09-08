@@ -3,6 +3,9 @@ package transfer
 import (
 	"context"
 	"fmt"
+
+	"github.com/weeback/bko-bankpkg/pkg/logger"
+	"go.uber.org/zap"
 )
 
 func (t *transfer) SingleTransfer(ctx context.Context, result any, data *Pack) error {
@@ -21,7 +24,11 @@ func (t *transfer) SingleTransfer(ctx context.Context, result any, data *Pack) e
 	}
 
 	// Log queue status
-	fmt.Printf("SINGLE mode: free=%d, total=%d, status=%s\n", free, total, status)
+	logger.GetLoggerFromContext(ctx).Info("single transfer queue status",
+		zap.Int("free_slots", free),
+		zap.Int("total_slots", total),
+		zap.String("status", status),
+		zap.String(logger.KeyFunctionName, "SingleTransfer"))
 
 	// Send the payload to the partner
 	if err := t.partner.Post(ctx, result, data.Payload); err != nil {
