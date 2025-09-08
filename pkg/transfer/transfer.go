@@ -76,7 +76,19 @@ func (t *transfer) queueMultiTransferProcess() {
 		t.mu.Unlock()
 		return
 	}
+	if t.queue == nil {
+		// Queue is not initialized, should not happen
+		t.queueState = 0
+		t.mu.Unlock()
+		return
+	}
+
+	// Mark as running
 	t.queueState = 1
+
+	// Capture the current queue to avoid
+	currentQueue := t.queue
+
 	t.mu.Unlock()
 
 	// Handle errors when processing the queue
@@ -88,11 +100,12 @@ func (t *transfer) queueMultiTransferProcess() {
 		}
 		// Restart the processor by resetting once
 		t.mu.Lock()
+		t.queueState = 0
 		t.once = sync.Once{}
 		t.mu.Unlock()
 	}()
 
-	for q := range t.queue {
+	for q := range currentQueue {
 		// Drop old packs
 		if d := time.Since(q.retriedAt); d > t.maxLiveTime {
 			logger.NewEntry().Warn("dropping old pack in multiQueueProcess",

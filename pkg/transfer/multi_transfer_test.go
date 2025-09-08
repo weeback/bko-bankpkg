@@ -155,25 +155,29 @@ func TestTransfer_QueueMultiTransferProcess(t *testing.T) {
 
 func TestTransfer_QueueBusyTimeout(t *testing.T) {
 	mock := NewMockHTTP()
+	tr := NewTransfer(mock)
 
-	// Always return BUSY status
-	mock.getConcurrentStatus = func() (free, total int, status string) {
-		return 0, 10, "BUSY"
+	// Initialize queue first
+	pack1 := &Pack{
+		ID:      "init-pack",
+		Payload: []byte("test data"),
+	}
+	if err := tr.MultiTransfer(context.Background(), nil, pack1); err != nil {
+		t.Fatalf("Failed to initialize queue: %v", err)
 	}
 
-	tr := NewTransfer(mock)
-	transfer := tr.(*transfer)
-	transfer.once.Do(func() {}) // Prevent queue initialization
+	// Now force busy status
+	mock.forceBusy = true
 
-	// Create a pack
-	pack := &Pack{
+	// Create a pack for the busy test
+	pack2 := &Pack{
 		ID:      "test-1",
 		Payload: []byte("test data"),
 	}
 
 	// This should timeout after 5 seconds
 	startTime := time.Now()
-	err := tr.MultiTransfer(context.Background(), nil, pack)
+	err := tr.MultiTransfer(context.Background(), nil, pack2)
 	duration := time.Since(startTime)
 
 	if err == nil {

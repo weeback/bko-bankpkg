@@ -58,12 +58,20 @@ func (m *MockHTTP) Get(ctx context.Context, result any, opts ...queue.Option) er
 func (m *MockHTTP) GetConcurrentStatus() (free, total int, status string) {
 	m.getConcStatusCount++
 	if m.forceOccupied {
-		return 0, 10, "OCCUPIED"
+		return 0, m.maxConcurrent, "OCCUPIED"
 	}
 	if m.forceBusy {
-		return 2, 10, "BUSY"
+		return 2, m.maxConcurrent, "BUSY"
 	}
-	return m.getConcurrentStatus()
+	current := m.postCallCount
+	if current > m.maxConcurrent {
+		current = m.maxConcurrent
+	}
+	free = m.maxConcurrent - current
+	if free < 0 {
+		free = 0
+	}
+	return free, m.maxConcurrent, "AVAILABLE"
 }
 
 func (m *MockHTTP) SetPriorityMode(mode queue.Priority) {
@@ -83,6 +91,11 @@ func (m *MockHTTP) String() string {
 }
 
 func (m *MockHTTP) ResetCounters() {
+	if m.forceError {
+		m.forceError = false
+	}
+	m.forceOccupied = false
+	m.forceBusy = false
 	m.postCallCount = 0
 	m.getCallCount = 0
 	m.getConcStatusCount = 0
