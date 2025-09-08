@@ -1,0 +1,26 @@
+graph TD
+    A[Code Analysis] --> B[Identify Functions]
+    B --> C[Analyze Dependencies]
+    C --> D[Generate Test Cases]
+    
+    D --> E[Unit Tests]
+    D --> F[Integration Tests]
+    D --> G[E2E Tests]
+    
+    E --> H[Generate Mocks]
+    E --> I[Generate Assertions]
+    
+    F --> J[Generate DB Tests]
+    F --> K[Generate API Tests]
+    
+    G --> L[Generate Scenarios]
+    G --> M[Generate Test Data]
+    
+    H --> N[Test Suite]
+    I --> N
+    J --> N
+    K --> N
+    L --> N
+    M --> N
+    
+    N --> O[Coverage Report]

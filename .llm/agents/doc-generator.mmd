@@ -1,0 +1,152 @@
+graph TD
+    A[Input: Source Code + Specifications] --> B[Documentation Analysis]
+    
+    %% Analysis Phase
+    B --> C[Code Structure Analysis]
+    B --> D[API Discovery]
+    B --> E[Business Logic Analysis]
+    B --> F[Architecture Analysis]
+    
+    %% Code Structure Analysis
+    C --> C1[Package Structure]
+    C --> C2[Function Signatures]
+    C --> C3[Type Definitions]
+    C --> C4[Interface Definitions]
+    
+    C1 --> C1a[Package Dependencies]
+    C1 --> C1b[Module Organization]
+    
+    C2 --> C2a[Public Functions]
+    C2 --> C2b[Method Parameters]
+    C2 --> C2c[Return Types]
+    
+    %% API Discovery
+    D --> D1[REST Endpoints]
+    D --> D2[gRPC Services]
+    D --> D3[Request/Response Models]
+    D --> D4[Error Responses]
+    
+    D1 --> D1a[HTTP Methods]
+    D1 --> D1b[URL Paths]
+    D1 --> D1c[Query Parameters]
+    D1 --> D1d[Request Bodies]
+    
+    D2 --> D2a[Service Definitions]
+    D2 --> D2b[Method Definitions]
+    D2 --> D2c[Message Types]
+    
+    %% Documentation Generation
+    C1a --> G[Documentation Generator]
+    C2a --> G
+    D1a --> G
+    D2a --> G
+    E --> G
+    F --> G
+    
+    G --> G1[Generate API Documentation]
+    G --> G2[Generate Code Documentation]
+    G --> G3[Generate Architecture Documentation]
+    G --> G4[Generate User Guides]
+    
+    %% API Documentation Generation
+    G1 --> G1a[OpenAPI Specification]
+    G1 --> G1b[Postman Collection]
+    G1 --> G1c[Interactive API Docs]
+    G1 --> G1d[SDK Examples]
+    
+    G1a --> G1a1[Swagger UI]
+    G1a --> G1a2[ReDoc]
+    
+    G1c --> G1c1[Try-it-out Features]
+    G1c --> G1c2[Code Examples]
+    
+    G1d --> G1d1[cURL Examples]
+    G1d --> G1d2[Go Client Examples]
+    G1d --> G1d3[JavaScript Examples]
+    G1d --> G1d4[Python Examples]
+    
+    %% Code Documentation Generation
+    G2 --> G2a[GoDoc Comments]
+    G2 --> G2b[Package Documentation]
+    G2 --> G2c[Function Documentation]
+    G2 --> G2d[Type Documentation]
+    
+    G2a --> G2a1[Function Descriptions]
+    G2a --> G2a2[Parameter Descriptions]
+    G2a --> G2a3[Return Value Descriptions]
+    G2a --> G2a4[Usage Examples]
+    
+    G2b --> G2b1[Package Overview]
+    G2b --> G2b2[Package Usage Guide]
+    G2b --> G2b3[Installation Instructions]
+    
+    %% Architecture Documentation
+    G3 --> G3a[System Architecture Diagrams]
+    G3 --> G3b[Component Diagrams]
+    G3 --> G3c[Sequence Diagrams]
+    G3 --> G3d[Deployment Diagrams]
+    
+    G3a --> G3a1[High-level Architecture]
+    G3a --> G3a2[Service Dependencies]
+    G3a --> G3a3[Data Flow Diagrams]
+    
+    G3b --> G3b1[Layer Diagrams]
+    G3b --> G3b2[Module Relationships]
+    
+    G3c --> G3c1[API Call Flows]
+    G3c --> G3c2[Business Process Flows]
+    
+    %% User Guide Generation
+    G4 --> G4a[Getting Started Guide]
+    G4 --> G4b[Tutorial Documentation]
+    G4 --> G4c[Best Practices Guide]
+    G4 --> G4d[Troubleshooting Guide]
+    
+    G4a --> G4a1[Installation Steps]
+    G4a --> G4a2[Configuration Guide]
+    G4a --> G4a3[First API Call]
+    
+    G4b --> G4b1[Step-by-step Tutorials]
+    G4b --> G4b2[Code Walkthroughs]
+    G4b --> G4b3[Common Use Cases]
+    
+    %% Documentation Quality Check
+    G1a1 --> H[Documentation Quality Assurance]
+    G2a1 --> H
+    G3a1 --> H
+    G4a1 --> H
+    
+    H --> H1[Content Completeness]
+    H --> H2[Accuracy Verification]
+    H --> H3[Consistency Check]
+    H --> H4[Readability Assessment]
+    
+    H1 --> H1a[All APIs Documented]
+    H1 --> H1b[All Parameters Described]
+    H1 --> H1c[Examples Provided]
+    
+    H2 --> H2a[Code Examples Tested]
+    H2 --> H2b[Links Validated]
+    H2 --> H2c[Version Compatibility]
+    
+    %% Output Generation
+    H1a --> I[Documentation Output]
+    H2a --> I
+    H3 --> I
+    H4 --> I
+    
+    I --> I1[Markdown Files]
+    I --> I2[HTML Documentation]
+    I --> I3[PDF Documentation]
+    I --> I4[Interactive Documentation]
+    
+    I1 --> I1a[README.md]
+    I1 --> I1b[API.md]
+    I1 --> I1c[ARCHITECTURE.md]
+    I1 --> I1d[CONTRIBUTING.md]
+    
+    I2 --> I2a[Static Site Generation]
+    I2 --> I2b[Documentation Website]
+    
+    I4 --> I4a[Swagger UI Deployment]
+    I4 --> I4b[Interactive Examples]

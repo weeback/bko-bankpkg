@@ -1,0 +1,27 @@
+graph TD
+    A[Code Input] --> B[Static Analysis]
+    B --> C[Security Scan]
+    B --> D[Performance Check]
+    B --> E[Style Check]
+    
+    C --> F{Security Issues?}
+    D --> G{Performance Issues?}
+    E --> H{Style Issues?}
+    
+    F -->|Yes| I[Generate Security Fixes]
+    F -->|No| J[Security OK]
+    
+    G -->|Yes| K[Generate Performance Improvements]
+    G -->|No| L[Performance OK]
+    
+    H -->|Yes| M[Generate Style Fixes]
+    H -->|No| N[Style OK]
+    
+    I --> O[Review Report]
+    J --> O
+    K --> O
+    L --> O
+    M --> O
+    N --> O
+    
+    O --> P[Approved/Rejected]

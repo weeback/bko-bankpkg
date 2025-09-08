@@ -34,24 +34,23 @@ func (w *worker) getConcurrentStatus() (int, int, string) {
 	if w.maxConcurrent == 0 {
 		return math.MaxInt, 0, "FREE"
 	}
-	n := w.maxConcurrent - len(w.activeSem)
-	log.Printf("Current concurrent requests: %d/%d", n, w.maxConcurrent)
-	status := "FREE"
-	switch {
-	case n == w.maxConcurrent:
-		log.Printf("All slots are free")
-		status = "FREE"
-	case n > w.maxConcurrent/10:
-		log.Printf("Many slots are free")
-		status = "AVAILABLE"
-	case n > 0:
-		log.Printf("Some slots are free")
-		status = "BUSY"
-	default:
-		log.Printf("All slots are occupied")
-		status = "OCCUPIED"
+	free := w.maxConcurrent - len(w.activeSem)
+	log.Printf("Current concurrent requests: %d/%d", free, w.maxConcurrent)
+
+	if free == w.maxConcurrent {
+		return free, w.maxConcurrent, "FREE"
 	}
-	return n, w.maxConcurrent, status
+
+	if free > w.maxConcurrent/10 {
+		return free, w.maxConcurrent, "AVAILABLE"
+	}
+
+	if free > 0 {
+		return free, w.maxConcurrent, "BUSY"
+	}
+
+	log.Printf("All slots are occupied")
+	return free, w.maxConcurrent, "OCCUPIED"
 }
 
 // acquireSemaphore gets a slot from the semaphore, returns a release function
