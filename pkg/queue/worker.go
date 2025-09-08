@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/weeback/bko-bankpkg/pkg/logger"
+	"github.com/weeback/bko-bankpkg/pkg/queue/metrics"
 	"go.uber.org/zap"
 )
 
@@ -62,15 +63,11 @@ func (w *worker) init() *worker {
 	return w
 }
 
-// Deprecated: no used
-// func (w *worker)stop {
-// 	defer func() {
-// 		if r := recover(); r != nil {
-// 			println("worker.stop() panic recovered")
-// 		}
-// 	}()
-// 	w.signal <- os.Interrupt
-// }
+// GetMetrics returns nil for base worker implementation
+// The metrics worker implementation will override this
+func (w *worker) GetMetrics() *metrics.QueueMetrics {
+	return nil
+}
 
 func (w *worker) start() {
 

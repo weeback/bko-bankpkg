@@ -8,6 +8,8 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"github.com/weeback/bko-bankpkg/pkg/queue/metrics"
 )
 
 const (
@@ -23,8 +25,9 @@ type queueInter interface {
 	setPriorityMode(mode Priority)
 	setTimeout(d time.Duration)
 	updateMaxConcurrent(maxConcurrent int)
-	getConcurrentStatus() (int, int, string) 
+	getConcurrentStatus() (int, int, string)
 	listen(method string, fullURL string, body []byte, opt Option) <-chan *recv
+	GetMetrics() *metrics.QueueMetrics // Optional - implemented by metricsWorker
 }
 
 func bindHttpQueue(name string, desc ...*url.URL) queueInter {
@@ -51,13 +54,13 @@ func bindHttpQueue(name string, desc ...*url.URL) queueInter {
 	// set the queue name to the primary server host
 	queueName := fmt.Sprintf("%s - %s", name, primaryServer[0].url.Host)
 	//
-	qInter, ok := publicQueue[queueName]
+	existingWorker, ok := publicQueue[queueName]
 	if ok {
-		// start the worker
-		return qInter.init()
+		// wrap with metrics and start the worker
+		return NewWorkerWithMetrics(existingWorker).init()
 	}
 	// create a new queue
-	publicQueue[queueName] = &worker{
+	w := &worker{
 		name:                queueName,
 		code:                0, // inactive
 		primaryServer:       primaryServer,
@@ -73,14 +76,15 @@ func bindHttpQueue(name string, desc ...*url.URL) queueInter {
 			}
 		},
 		timeout:       30 * time.Second,
-		maxConcurrent: 1000, // Mặc định 1000 req/s
-		activeSem:     nil,  // Sẽ được khởi tạo khi cần
+		maxConcurrent: 1000, // Default 1000 req/s
+		activeSem:     nil,  // Will be initialized when needed
 	}
-	//
-	// the queue with URL of the primary server (must be matched queueName)
-	// return bindHttpQueue(primaryServer)
-	//
-	return publicQueue[queueName].init()
+
+	// Wrap with metrics
+	mw := NewWorkerWithMetrics(w)
+	publicQueue[queueName] = w
+
+	return mw.init()
 }
 
 func printQueueStatus(star string) {

@@ -1,6 +1,10 @@
 package queue
 
-import "time"
+import (
+	"time"
+
+	"github.com/weeback/bko-bankpkg/pkg/queue/metrics"
+)
 
 func lazyGuys() queueInter {
 	return &lazy{}
@@ -24,5 +28,9 @@ func (*lazy) getConcurrentStatus() (int, int, string) {
 }
 
 func (*lazy) listen(string, string, []byte, Option) <-chan *recv {
+	return nil
+}
+
+func (*lazy) GetMetrics() *metrics.QueueMetrics {
 	return nil
 }
