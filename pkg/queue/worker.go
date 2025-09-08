@@ -5,11 +5,13 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"net/url"
 	"os"
 	"time"
+
+	"github.com/weeback/bko-bankpkg/pkg/logger"
+	"go.uber.org/zap"
 )
 
 type worker struct {
@@ -51,9 +53,10 @@ func (w *worker) init() *worker {
 		w.start()
 		// when the worker not working:
 		// remove the queue from the public queue
-		log.Printf("delete %s from publicQueue because jobs channel closed", w.name)
+		log := logger.NewEntry()
+		log.Debug("deleting from publicQueue - jobs channel closed", zap.String("worker_name", w.name))
 		delete(publicQueue, w.name)
-		log.Printf("publicQueue to delete success")
+		log.Debug("publicQueue deletion successful")
 	}()
 
 	return w
@@ -87,12 +90,12 @@ func (w *worker) start() {
 		select {
 		case s := <-w.signal:
 			if s == os.Interrupt {
-				log.Printf("worker stop by Interrupt signal received")
+				logger.NewEntry().Info("worker stopped - interrupt signal received")
 				return
 			}
 		case p, ok := <-w.jobs:
 			if !ok {
-				log.Printf("jobs channel closed")
+				logger.NewEntry().Info("jobs channel closed")
 				return
 			}
 			go func(bp *job, limit int) {
@@ -102,18 +105,27 @@ func (w *worker) start() {
 				templateURL := bp.fullURL
 
 				// loop for the job
+				log := logger.NewEntry()
 				for i := 1; true; i++ {
 					// vote the URL host
 					if voted, label, err := w.vote(templateURL); err != nil {
-						log.Printf("job processed method=%s fullURL=%s vote= error: %v", bp.method, bp.fullURL, err)
+						log.Debug("job processing - vote error",
+							zap.String("method", bp.method),
+							zap.String("url", bp.fullURL),
+							zap.Error(err))
 						bp.serverLabel = labelPrimary
 						bp.fullURL = w.withPrimary(bp.fullURL)
-						log.Printf("job processed method=%s fullURL=%s voted=%s retry with primary server",
-							bp.method, bp.fullURL, bp.serverLabel)
+						log.Debug("job processing - retrying with primary server",
+							zap.String("method", bp.method),
+							zap.String("url", bp.fullURL),
+							zap.String("voted", bp.serverLabel))
 					} else {
 						bp.serverLabel = label
 						bp.fullURL = voted
-						log.Printf("job processed method=%s fullURL=%s voted=%s", bp.method, bp.fullURL, bp.serverLabel)
+						log.Debug("job processing - vote successful",
+							zap.String("method", bp.method),
+							zap.String("url", bp.fullURL),
+							zap.String("voted", bp.serverLabel))
 					}
 
 					rv := w.call(bp)
@@ -123,8 +135,12 @@ func (w *worker) start() {
 						// set this url to not responding (mockup response time=30s)
 						w.setLastTook(bp.serverLabel, 30*time.Second)
 						// vote again to new url
-						log.Printf("job processed method=%s fullURL=%s voted=%s error=%v try voting to new url (%d)",
-							bp.method, bp.fullURL, bp.serverLabel, rv.err, i)
+						log.Debug("job processing - retrying with new URL",
+							zap.String("method", bp.method),
+							zap.String("url", bp.fullURL),
+							zap.String("voted", bp.serverLabel),
+							zap.Error(rv.err),
+							zap.Int("attempt", i))
 						continue
 					}
 					if rv.HttpStatusCode == 0 {
@@ -132,7 +148,9 @@ func (w *worker) start() {
 					}
 					// send the response to the channel
 					if closed := recvSafe(bp.recv, &rv); closed {
-						log.Printf("job processed method=%s fullURL=%s receive channel closed", bp.method, bp.fullURL)
+						log.Debug("job processing - receive channel closed",
+							zap.String("method", bp.method),
+							zap.String("url", bp.fullURL))
 					}
 					// end to break
 					return
@@ -201,7 +219,9 @@ func (w *worker) setTimeout(d time.Duration) {
 func (w *worker) withPrimary(template string) string {
 	templateUrl, err := url.Parse(template)
 	if err != nil {
-		log.Printf("[ERROR] failed to parse url: %s", template)
+		logger.NewEntry().Error("failed to parse url",
+			zap.String("url", template),
+			zap.Error(err))
 		return template
 	}
 	templateUrl.Scheme = w.primaryServer[0].url.Scheme
@@ -244,8 +264,11 @@ func (w *worker) call(work *job) recv {
 	work.acceptHeaders(r)
 
 	defer func(t time.Time) {
-		log.Printf("worker.call() method=%s fullURL=%s voted=%s duration=%s",
-			work.method, work.fullURL, work.serverLabel, time.Since(t).String())
+		logger.NewEntry().Debug("worker call completed",
+			zap.String("method", work.method),
+			zap.String("url", work.fullURL),
+			zap.String("voted", work.serverLabel),
+			zap.Duration("duration", time.Since(t)))
 
 		// update the counter status.
 		// only use freeCounter or setLastTook
@@ -312,7 +335,7 @@ func (w *worker) listen(method string, fullURL string, body []byte, opt Option) 
 		if closed := recvSafe(pack.recv, &recv{
 			err: fmt.Errorf("worker processing deadline exceeded"),
 		}); closed {
-			log.Printf("worker.listen() context deadline exceeded, but receive channel closed")
+			logger.NewEntry().Debug("worker.listen() - context deadline exceeded and receive channel closed")
 		}
 		return pack.recv
 	}

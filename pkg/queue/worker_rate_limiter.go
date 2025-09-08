@@ -2,9 +2,11 @@ package queue
 
 import (
 	"fmt"
-	"log"
 	"math"
 	"time"
+
+	"github.com/weeback/bko-bankpkg/pkg/logger"
+	"go.uber.org/zap"
 )
 
 // updateMaxConcurrent updates the limit of concurrent requests
@@ -26,7 +28,8 @@ func (w *worker) updateMaxConcurrent(maxConcurrent int) {
 	if w.activeSem == nil || cap(w.activeSem) != maxConcurrent {
 		// Create a new semaphore with the new size
 		w.activeSem = make(chan struct{}, maxConcurrent)
-		log.Printf("Rate limiter updated: max concurrent requests = %d", maxConcurrent)
+		logger.NewEntry().Debug("Rate limiter updated",
+			zap.Int("max_concurrent_requests", maxConcurrent))
 	}
 }
 
@@ -35,7 +38,10 @@ func (w *worker) getConcurrentStatus() (int, int, string) {
 		return math.MaxInt, 0, "FREE"
 	}
 	free := w.maxConcurrent - len(w.activeSem)
-	log.Printf("Current concurrent requests: %d/%d", free, w.maxConcurrent)
+	log := logger.NewEntry()
+	log.Debug("Current concurrent requests",
+		zap.Int("free", free),
+		zap.Int("max_concurrent", w.maxConcurrent))
 
 	if free == w.maxConcurrent {
 		return free, w.maxConcurrent, "FREE"
@@ -49,7 +55,7 @@ func (w *worker) getConcurrentStatus() (int, int, string) {
 		return free, w.maxConcurrent, "BUSY"
 	}
 
-	log.Printf("All slots are occupied")
+	log.Debug("All slots are occupied")
 	return free, w.maxConcurrent, "OCCUPIED"
 }
 

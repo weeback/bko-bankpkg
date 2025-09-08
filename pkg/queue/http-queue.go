@@ -10,7 +10,8 @@ import (
 	"slices"
 	"time"
 
-	"github.com/weeback/bko-bankpkg/pkg/log"
+	"github.com/weeback/bko-bankpkg/pkg/logger"
+	"go.uber.org/zap"
 )
 
 type HTTP interface {
@@ -84,7 +85,9 @@ func (q *httpQueue) validate() error {
 }
 
 func (q *httpQueue) String() string {
-	fmt.Printf("%s httpQueue.String() called\n", log.LogPrefixWith("[SYS-debug]"))
+	log := logger.NewEntry()
+	log.Debug("httpQueue.String() called")
+
 	// validate data before processing
 	if err := q.validate(); err != nil {
 		return err.Error()
@@ -93,7 +96,9 @@ func (q *httpQueue) String() string {
 	if ok {
 		for i := 1; i <= len(w.primaryServer)+len(w.secondaryServerList); i++ {
 			val, label, _ := w.vote(q.templateURL.String())
-			fmt.Printf("%s httpQueue.String() voted=%s vote=%s\n", log.LogPrefixWith("[SYS-debug]"), label, val)
+			log.Debug("httpQueue.String() vote",
+				zap.String("voted", label),
+				zap.String("vote", val))
 		}
 	}
 	// toJson is defined in internal/queue/util.go
@@ -101,21 +106,24 @@ func (q *httpQueue) String() string {
 }
 
 func (q *httpQueue) SetPriorityMode(mode Priority) {
-	fmt.Printf("%s httpQueue.SetPriorityMode() called\n", log.LogPrefixWith("[SYS-debug]"))
+	log := logger.NewEntry()
+	log.Debug("httpQueue.SetPriorityMode() called")
+
 	// validate data before processing
 	if err := q.validate(); err != nil {
-		fmt.Printf("%s httpQueue.SetPriorityMode() error: %v\n", log.LogPrefixWith("[SYS-debug]"), err)
+		log.Debug("httpQueue.SetPriorityMode() error", zap.Error(err))
 		return
 	}
 	q.queue.setPriorityMode(mode)
 }
 
 func (q *httpQueue) SetRequestTimeout(d time.Duration) {
-	fmt.Printf("%s httpQueue.SetRequestTimeout(%v) called\n", log.LogPrefixWith("[SYS-debug]"), d)
+	log := logger.NewEntry()
+	log.Debug("httpQueue.SetRequestTimeout() called", zap.Duration("timeout", d))
 
 	// validate data before processing
 	if err := q.validate(); err != nil {
-		fmt.Printf("%s httpQueue.SetRequestTimeout() error: %v\n", log.LogPrefixWith("[SYS-debug]"), err)
+		log.Debug("httpQueue.SetRequestTimeout() error", zap.Error(err))
 		return
 	}
 
@@ -125,11 +133,12 @@ func (q *httpQueue) SetRequestTimeout(d time.Duration) {
 
 // SetMaxConcurrent sets the maximum number of concurrent requests
 func (q *httpQueue) SetMaxConcurrent(maxConcurrent int) {
-	fmt.Printf("%s httpQueue.SetMaxConcurrent(%d) called\n", log.LogPrefixWith("[SYS-debug]"), maxConcurrent)
+	log := logger.NewEntry()
+	log.Debug("httpQueue.SetMaxConcurrent() called", zap.Int("maxConcurrent", maxConcurrent))
 
 	// validate data before processing
 	if err := q.validate(); err != nil {
-		fmt.Printf("%s httpQueue.SetMaxConcurrent() error: %v\n", log.LogPrefixWith("[SYS-debug]"), err)
+		log.Debug("httpQueue.SetMaxConcurrent() error", zap.Error(err))
 		return
 	}
 
@@ -142,6 +151,7 @@ func (q *httpQueue) GetConcurrentStatus() (free int, total int, status string) {
 }
 
 func (q *httpQueue) Get(ctx context.Context, v any, opts ...Option) error {
+	log := logger.GetLoggerFromContext(ctx)
 
 	// validate data before processing
 	if reflect.TypeOf(v).Kind() != reflect.Pointer {
@@ -151,11 +161,11 @@ func (q *httpQueue) Get(ctx context.Context, v any, opts ...Option) error {
 	var (
 		opt = WithMultiOptions(opts...)
 	)
-	fmt.Printf("%s httpQueue.Get() called\n", log.LogPrefixWith("[SYS-debug]"))
+	log.Debug("httpQueue.Get() called")
 
 	select {
 	case r, ok := <-q.queue.listen(http.MethodGet, q.templateURL.String(), nil, opt):
-		fmt.Printf("%s httpQueue.Get() listen() received\n", log.LogPrefixWith("[SYS-debug]"))
+		log.Debug("httpQueue.Get() listen() received")
 		// validate data before processing
 		if !ok {
 			return fmt.Errorf("queue closed")
@@ -177,12 +187,13 @@ func (q *httpQueue) Get(ctx context.Context, v any, opts ...Option) error {
 			return fmt.Errorf("http status: %s - body: %s", r.HttpStatus, string(r.Payload))
 		}
 	case <-ctx.Done():
-		fmt.Printf("%s httpQueue.Get() context deadline exceeded\n", log.LogPrefixWith("[SYS-debug]"))
+		log.Debug("httpQueue.Get() context deadline exceeded")
 		return ctx.Err()
 	}
 }
 
 func (q *httpQueue) Post(ctx context.Context, v any, body []byte, opts ...Option) error {
+	log := logger.GetLoggerFromContext(ctx)
 
 	// validate data before processing
 	if reflect.TypeOf(v).Kind() != reflect.Pointer {
@@ -192,11 +203,11 @@ func (q *httpQueue) Post(ctx context.Context, v any, body []byte, opts ...Option
 	var (
 		opt = WithMultiOptions(opts...)
 	)
-	fmt.Printf("%s httpQueue.Post() called\n", log.LogPrefixWith("[SYS-debug]"))
+	log.Debug("httpQueue.Post() called")
 
 	select {
 	case r, ok := <-q.queue.listen(http.MethodPost, q.templateURL.String(), body, opt):
-		fmt.Printf("%s httpQueue.Post() listen() received\n", log.LogPrefixWith("[SYS-debug]"))
+		log.Debug("httpQueue.Post() listen() received")
 		// validate data before processing
 		if !ok {
 			return fmt.Errorf("queue closed")
@@ -219,7 +230,7 @@ func (q *httpQueue) Post(ctx context.Context, v any, body []byte, opts ...Option
 			return fmt.Errorf("http status: %s - body: %s", r.HttpStatus, string(r.Payload))
 		}
 	case <-ctx.Done():
-		fmt.Printf("%s httpQueue.Post() context deadline exceeded\n", log.LogPrefixWith("[SYS-debug]"))
+		log.Debug("httpQueue.Post() context deadline exceeded")
 		return ctx.Err()
 	}
 }

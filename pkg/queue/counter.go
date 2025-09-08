@@ -1,11 +1,12 @@
 package queue
 
 import (
-	"log"
 	"math"
 	"net/url"
 	"sync"
 	"time"
+
+	"github.com/weeback/bko-bankpkg/pkg/logger"
 )
 
 const maxCounter int = 1_000_000
@@ -60,7 +61,7 @@ func (c *counter) resetCountersIfNeeded() {
 	defer c.mu.Unlock() // Sử dụng defer để đảm bảo unlock được gọi
 
 	if c.count > maxCounter {
-		log.Printf(">> reset the counter")
+		logger.NewEntry().Debug("reset the counter")
 		c.count = 0
 	}
 }
