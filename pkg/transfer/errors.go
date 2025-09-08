@@ -2,7 +2,8 @@ package transfer
 
 import "fmt"
 
-// Error types for the transfer package
+// ErrorType represents the category of error that occurred during transfer operations.
+// It helps in identifying and handling specific error scenarios appropriately.
 type ErrorType string
 
 const (
@@ -18,7 +19,8 @@ const (
 	ErrQueueTimeout ErrorType = "QUEUE_TIMEOUT"
 )
 
-// TransferError represents a custom error type for transfer operations
+// TransferError is a custom error type that provides detailed information about
+// transfer operation failures, including the error type, message, and underlying error.
 type TransferError struct {
 	Type    ErrorType
 	Message string
@@ -36,7 +38,8 @@ func (e *TransferError) Unwrap() error {
 	return e.Err
 }
 
-// NewError creates a new TransferError
+// NewError creates a new TransferError with the specified error type, message, and
+// optional underlying error. This is the recommended way to create transfer errors.
 func NewError(errType ErrorType, message string, err error) *TransferError {
 	return &TransferError{
 		Type:    errType,

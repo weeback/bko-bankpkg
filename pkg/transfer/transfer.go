@@ -10,11 +10,20 @@ import (
 	"go.uber.org/zap"
 )
 
+// Transfer is an interface that defines methods for transferring data in both
+// single and multi-mode operations.
 type Transfer interface {
+	// SingleTransfer performs a one-time transfer operation for a given data pack.
+	// It blocks until the transfer is complete or fails.
 	SingleTransfer(ctx context.Context, result any, data *Pack) error
+
+	// MultiTransfer handles transfer operations in a concurrent manner, with support
+	// for queuing and retries. It may return immediately if the transfer is queued.
 	MultiTransfer(ctx context.Context, result any, data *Pack) error
 }
 
+// NewTransfer creates a new Transfer instance with the provided HTTP partner.
+// It initializes the transfer with default concurrent limits and live time settings.
 func NewTransfer(partner queue.HTTP) Transfer {
 	return &transfer{
 		partner:     partner,

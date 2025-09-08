@@ -1,3 +1,5 @@
+// Package transfer provides functionality for managing single and multi-mode data transfers
+// with configurable concurrency and retry mechanisms.
 package transfer
 
 import (
@@ -14,9 +16,14 @@ const (
 	MultiTransferWait    = 5 * time.Second
 )
 
+// Pack represents a data package that can be transferred, containing payload data
+// and metadata for tracking and retry mechanisms.
 type Pack struct {
-	ID        string
-	Payload   []byte
+	// ID is the unique identifier for the pack
+	ID string
+	// Payload contains the actual data to be transferred
+	Payload []byte
+	// CreatedAt is the timestamp when the pack was created
 	CreatedAt time.Time
 
 	retry     int
