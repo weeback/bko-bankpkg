@@ -2,6 +2,7 @@ package transfer
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 
@@ -43,28 +44,54 @@ type transfer struct {
 	once        sync.Once
 }
 
-func (t *transfer) addQueueMultiTransfer(val *Pack) chan struct{} {
+func (t *transfer) addQueueMultiTransfer(val *Pack) error {
 	t.once.Do(func() {
 		t.mu.Lock()
 		defer t.mu.Unlock()
 		// Set max to half of partner's max concurrent, minimum 2
 		if t.max > 0 {
 			t.queue = make(chan *Pack, t.max)
+			t.queueState = 0
 		} else {
 			t.queue = make(chan *Pack, 2)
+			t.queueState = 0
 		}
 		// Start the queue processor
 		go t.queueMultiTransferProcess()
 	})
 
-	//
-	var ok = make(chan struct{}, 1)
-	go func() {
-		t.queue <- val
-		ok <- struct{}{}
-	}()
+	// Validate input
+	if val == nil {
+		logger.NewEntry().Error("attempted to queue nil pack")
+		return nil
+	}
 
-	return ok
+	// If queue is not initialized, re-initialize
+	if t.queue == nil {
+		// Queue is not initialized, should not happen
+		logger.NewEntry().Error("queue is not initialized in addQueueMultiTransfer")
+
+		t.once = sync.Once{} // Reset once to allow re-initialization
+		t.queueState = 0
+
+		return t.addQueueMultiTransfer(val) // Retry adding to queue
+	}
+
+	// Attempt to add to queue with timeout to avoid blocking indefinitely
+	select {
+	case t.queue <- val:
+		logger.NewEntry().Info("re-queued pack in multiQueueProcess",
+			zap.String("pack_id", val.ID),
+			zap.Int("retry", val.retry),
+			zap.String(logger.KeyFunctionName, "addQueueMultiTransfer"))
+	case <-time.After(QueueTimeout):
+		logger.NewEntry().Warn("dropped pack due to full queue in addQueueMultiTransfer",
+			zap.String("pack_id", val.ID),
+			zap.String(logger.KeyFunctionName, "addQueueMultiTransfer"))
+		return fmt.Errorf("dropped pack due to full queue")
+	}
+
+	return nil
 }
 
 func (t *transfer) queueMultiTransferProcess() {
@@ -73,12 +100,6 @@ func (t *transfer) queueMultiTransferProcess() {
 	t.mu.Lock()
 	if t.queueState == 1 {
 		// Already running
-		t.mu.Unlock()
-		return
-	}
-	if t.queue == nil {
-		// Queue is not initialized, should not happen
-		t.queueState = 0
 		t.mu.Unlock()
 		return
 	}
@@ -115,33 +136,58 @@ func (t *transfer) queueMultiTransferProcess() {
 				zap.String(logger.KeyFunctionName, "queueMultiTransferProcess"))
 			continue
 		}
-		// Send the payload to the partner
-		if err := t.partner.Post(context.Background(), nil, q.Payload); err != nil {
-			logger.NewEntry().Error("failed to send payload in multiQueueProcess",
-				zap.String("pack_id", q.ID),
-				zap.Error(err),
-				zap.String(logger.KeyFunctionName, "queueMultiTransferProcess"))
-			// Retry logic
-			q.retry++
+		// Skip if recently retried
+		if d := time.Since(q.retriedAt); d < MultiTransferWait {
+			// Retry logic to avoid rapid retries
 			q.retriedAt = time.Now()
 			// Re-add to queue for retry
 			go func(p *Pack) {
-				select {
-				case <-t.addQueueMultiTransfer(p):
+				if err := t.addQueueMultiTransfer(p); err != nil {
 					logger.NewEntry().Info("re-queued pack in multiQueueProcess",
+						zap.Error(err),
 						zap.String("pack_id", p.ID),
 						zap.Int("retry", p.retry),
 						zap.String(logger.KeyFunctionName, "queueMultiTransferProcess"))
-				case <-time.After(QueueTimeout):
-					logger.NewEntry().Warn("dropped pack due to full queue in multiQueueProcess",
-						zap.String("pack_id", p.ID),
-						zap.String(logger.KeyFunctionName, "queueMultiTransferProcess"))
 				}
 			}(q)
+			// Continue to next pack
 			continue
 		}
-		logger.NewEntry().Info("successfully sent pack in multiQueueProcess",
-			zap.String("pack_id", q.ID),
-			zap.String(logger.KeyFunctionName, "queueMultiTransferProcess"))
+
+		// Send the payload to the partner
+		t.postOrRetry(q, RequestTimeout)
 	}
+}
+
+func (t *transfer) postOrRetry(q *Pack, timeout time.Duration) {
+
+	// Context with timeout for the post operation
+	ctx, cancel := context.WithTimeout(context.TODO(), timeout)
+	defer cancel()
+
+	// Send the payload to the partner
+	if err := t.partner.Post(ctx, nil, q.Payload); err != nil {
+		logger.NewEntry().Error("failed to send payload in multiQueueProcess",
+			zap.String("pack_id", q.ID),
+			zap.Error(err),
+			zap.String(logger.KeyFunctionName, "queueMultiTransferProcess"))
+		// Retry logic
+		q.retry++
+		q.retriedAt = time.Now()
+		// Re-add to queue for retry
+		go func(p *Pack) {
+			if err := t.addQueueMultiTransfer(p); err != nil {
+				logger.NewEntry().Info("re-queued pack in multiQueueProcess",
+					zap.Error(err),
+					zap.String("pack_id", p.ID),
+					zap.Int("retry", p.retry),
+					zap.String(logger.KeyFunctionName, "queueMultiTransferProcess"))
+			}
+		}(q)
+		return
+	}
+	// Log success
+	logger.NewEntry().Info("successfully sent pack in multiQueueProcess",
+		zap.String("pack_id", q.ID),
+		zap.String(logger.KeyFunctionName, "queueMultiTransferProcess"))
 }

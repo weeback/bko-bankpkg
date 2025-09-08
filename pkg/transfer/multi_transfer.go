@@ -2,7 +2,6 @@ package transfer
 
 import (
 	"context"
-	"time"
 
 	"github.com/weeback/bko-bankpkg/pkg/logger"
 	"go.uber.org/zap"
@@ -31,10 +30,7 @@ func (t *transfer) MultiTransfer(ctx context.Context, result any, data *Pack) er
 
 	// If status is BUSY, wait for a slot in the multiQueue
 	if status == "BUSY" {
-		select {
-		case <-t.addQueueMultiTransfer(data): // wait for a slot
-			return nil
-		case <-time.After(5 * time.Second):
+		if err := t.addQueueMultiTransfer(data); err != nil {
 			log := logger.GetLoggerFromContext(ctx).With(
 				zap.String(logger.KeyFunctionName, "MultiTransfer"),
 				zap.String("pack_id", data.ID))

@@ -12,6 +12,7 @@ import (
 const (
 	DefaultMaxConcurrent = 2
 	DefaultMaxLiveTime   = 36 * time.Hour
+	RequestTimeout       = 30 * time.Second
 	QueueTimeout         = 30 * time.Second
 	MultiTransferWait    = 5 * time.Second
 )
