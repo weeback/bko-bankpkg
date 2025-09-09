@@ -2,12 +2,11 @@ package main
 
 import (
 	"context"
-	"fmt"
-	"net/http"
-	"sync"
+	"log"
 	"time"
 
 	"github.com/weeback/bko-bankpkg/pkg/queue"
+	"github.com/weeback/bko-bankpkg/pkg/transfer"
 )
 
 // First time, read file `github.com/weeback/bko-bankpkg/pkg/queue/README.md` to understand the package
@@ -26,59 +25,37 @@ func main() {
 	// Thiết lập giới hạn tối đa 10 request đồng thời
 	httpQueue.SetMaxConcurrent(100)
 
-	pool := make([]struct{}, 10000)
-	wg := sync.WaitGroup{}
-	inc := 0
+	transferQueue := transfer.NewTransfer(httpQueue)
 
-	// Tạo goroutine cho từng request
-	for range pool {
-		inc++
-		t := time.Now()
-		Go(&wg, func() {
-			// Thực hiện GET request
-			var response Response
-			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-			defer cancel()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 
-			free, total, status := httpQueue.GetConcurrentStatus()
-			fmt.Printf("(%d - %f) Concurrent Status: free=%d, total=%d, status=%s\n", inc, time.Since(t).Seconds(), free, total, status)
-			if status == "BUSY" /* && MULTI-TRANSFER */ {
-				// Nếu có nhiều request đang chờ, ưu tiên xử lý SINGLE-TRANSFER,
-				// đối với MULTI-TRANSFER có thể thử lại sau
-
-				// TODO:
-				// Maybe try again later
-				time.Sleep(100 * time.Millisecond)
-				return
-			}
-			if status == "OCCUPIED" {
-				// Nếu tất cả các slot đều đã được chiếm dụng, chờ một chút trước khi thử lại
-
-				// TODO:
-				// Maybe try again later
-				time.Sleep(100 * time.Millisecond)
-				return
-			}
-
-			if err := httpQueue.Get(ctx, &response,
-				queue.WithBasicAuth("username", "password"),
-				queue.AcceptStatus(http.StatusOK, http.StatusCreated),
-			); err != nil {
-				fmt.Printf("(%d - %f) Error: %+v\n", inc, time.Since(t).Seconds(), err)
-				return
-			}
-			fmt.Printf("(%d - %f) Response: %+v\n", inc, time.Since(t).Seconds(), response.Status)
-		})
+	// Tạo một gói dữ liệu để gửi
+	pack := transfer.Pack{
+		Payload: []byte("test payload"),
 	}
-	wg.Wait()
-}
+	// Gửi một gói dữ liệu sử dụng SingleTransfer (chặn đến khi hoàn thành)
+	if err := transferQueue.SingleTransfer(ctx, &Response{}, &pack); err != nil {
+		log.Fatalf("SingleTransfer error: %v", err)
+	}
 
-func Go(wg *sync.WaitGroup, f func()) {
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		f()
-	}()
+	// Tạo một danh sách các gói dữ liệu để gửi
+	packs := []transfer.Pack{
+		{Payload: []byte("test payload")},
+	}
+	// Sử dụng callback để nhận kết quả hoặc lỗi
+	callbackFunc := func(id string, payloadResponse []byte, execError error) error {
+		if execError != nil {
+			log.Printf("MultiTransferWaitCallback error for pack %s: %v", id, execError)
+			return execError
+		}
+		log.Printf("MultiTransferWaitCallback success for pack %s: %s", id, payloadResponse)
+		return nil
+	}
+	// Gửi một gói dữ liệu sử dụng MultiTransfer (không chặn)
+	if err := transferQueue.MultiTransferWaitCallback(ctx, callbackFunc, packs); err != nil {
+		log.Fatalf("MultiTransfer error: %v", err)
+	}
 }
 
 type Response struct {

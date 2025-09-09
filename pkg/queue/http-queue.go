@@ -23,6 +23,7 @@ type HTTP interface {
 
 	Get(ctx context.Context, v any, opts ...Option) error
 	Post(ctx context.Context, v any, body []byte, opts ...Option) error
+	PostWithFunc(ctx context.Context, fn func([]byte) error, body []byte, opts ...Option) error
 }
 
 // NewHttpQueue creates a new HTTP queue, it takes a full URL as input.
@@ -193,7 +194,8 @@ func (q *httpQueue) Get(ctx context.Context, v any, opts ...Option) error {
 }
 
 func (q *httpQueue) Post(ctx context.Context, v any, body []byte, opts ...Option) error {
-	log := logger.GetLoggerFromContext(ctx)
+	log := logger.GetLoggerFromContext(ctx).With(
+		zap.String(logger.KeyFunctionName, "httpQueue.Post"))
 
 	// validate data before processing
 	if reflect.TypeOf(v).Kind() != reflect.Pointer {
@@ -203,11 +205,11 @@ func (q *httpQueue) Post(ctx context.Context, v any, body []byte, opts ...Option
 	var (
 		opt = WithMultiOptions(opts...)
 	)
-	log.Debug("httpQueue.Post() called")
+	log.Debug("called")
 
 	select {
 	case r, ok := <-q.queue.listen(http.MethodPost, q.templateURL.String(), body, opt):
-		log.Debug("httpQueue.Post() listen() received")
+		log.Debug("listen() received")
 		// validate data before processing
 		if !ok {
 			return fmt.Errorf("queue closed")
@@ -230,7 +232,46 @@ func (q *httpQueue) Post(ctx context.Context, v any, body []byte, opts ...Option
 			return fmt.Errorf("http status: %s - body: %s", r.HttpStatus, string(r.Payload))
 		}
 	case <-ctx.Done():
-		log.Debug("httpQueue.Post() context deadline exceeded")
+		log.Debug("context deadline exceeded")
+		return ctx.Err()
+	}
+}
+
+func (q *httpQueue) PostWithFunc(ctx context.Context, fn func([]byte) error, body []byte, opts ...Option) error {
+	log := logger.GetLoggerFromContext(ctx).With(
+		zap.String(logger.KeyFunctionName, "httpQueue.PostWith"))
+
+	var (
+		opt = WithMultiOptions(opts...)
+	)
+	log.Debug("called")
+
+	select {
+	case r, ok := <-q.queue.listen(http.MethodPost, q.templateURL.String(), body, opt):
+		log.Debug("listen() received")
+		// validate data before processing
+		if !ok {
+			return fmt.Errorf("queue closed")
+		}
+		if r.err != nil {
+			return filterError(r.err)
+		}
+		if len(r.Payload) == 0 {
+			return fmt.Errorf("http status: %s - response body", r.HttpStatus)
+		}
+		switch r.HttpStatusCode {
+		case http.StatusOK:
+			// default status OK
+			return fn(r.Payload)
+		default:
+			// try to match the status in the options
+			if slices.Contains(opt.AcceptStatus, r.HttpStatusCode) {
+				return fn(r.Payload)
+			}
+			return fmt.Errorf("http status: %s - body: %s", r.HttpStatus, string(r.Payload))
+		}
+	case <-ctx.Done():
+		log.Debug("context deadline exceeded")
 		return ctx.Err()
 	}
 }

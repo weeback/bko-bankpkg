@@ -24,6 +24,8 @@ type Pack struct {
 	ID string
 	// Payload contains the actual data to be transferred
 	Payload []byte
+	// Callback is an optional function to be called with the result of the transfer
+	callback func(string, []byte, error) error
 	// CreatedAt is the timestamp when the pack was created
 	CreatedAt time.Time
 
@@ -41,6 +43,11 @@ func (p *Pack) Fill() error {
 	// auto fill ID and CreatedAt
 	if p.ID == "" {
 		p.ID = fmt.Sprintf("pack-%s", uuid.NewString())
+	}
+	if p.callback == nil {
+		p.callback = func(string, []byte, error) error {
+			return nil
+		}
 	}
 	if p.CreatedAt.IsZero() {
 		p.CreatedAt = time.Now()

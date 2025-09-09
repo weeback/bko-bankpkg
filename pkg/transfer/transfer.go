@@ -20,7 +20,13 @@ type Transfer interface {
 
 	// MultiTransfer handles transfer operations in a concurrent manner, with support
 	// for queuing and retries. It may return immediately if the transfer is queued.
-	MultiTransfer(ctx context.Context, result any, data *Pack) error
+	// MultiTransfer(ctx context.Context, result any, data *Pack) (done bool, err error)
+
+	// MultiTransferWaitCallback performs a non-blocking transfer operation using a callback
+	// to handle the result or error once the transfer is complete.
+	// It queues the transfer if the partner queue is busy.
+	// The callback function receives the pack ID, response payload, and any execution error.
+	MultiTransferWaitCallback(ctx context.Context, callback func(id string, payloadResponse []byte, execError error) error, data []Pack) error
 }
 
 // NewTransfer creates a new Transfer instance with the provided HTTP partner.
@@ -155,18 +161,27 @@ func (t *transfer) queueMultiTransferProcess() {
 		}
 
 		// Send the payload to the partner
-		t.postOrRetry(q, RequestTimeout)
+		t.postOrRetryMultiTransfer(q, RequestTimeout)
 	}
 }
 
-func (t *transfer) postOrRetry(q *Pack, timeout time.Duration) {
+func (t *transfer) postOrRetryMultiTransfer(q *Pack, timeout time.Duration) {
 
 	// Context with timeout for the post operation
 	ctx, cancel := context.WithTimeout(context.TODO(), timeout)
 	defer cancel()
 
+	fn := func(b []byte) error {
+		// process the response with the provided callback
+		if q.callback == nil {
+			return nil
+		}
+		// Call the callback with the response bytes
+		return q.callback(q.ID, b, nil)
+	}
+
 	// Send the payload to the partner
-	if err := t.partner.Post(ctx, nil, q.Payload); err != nil {
+	if err := t.partner.PostWithFunc(ctx, fn, q.Payload); err != nil {
 		logger.NewEntry().Error("failed to send payload in multiQueueProcess",
 			zap.String("pack_id", q.ID),
 			zap.Error(err),
