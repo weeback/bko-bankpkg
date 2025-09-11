@@ -27,6 +27,9 @@ type TransferError struct {
 	Err     error
 }
 
+// Error implements the error interface for TransferError.
+// It returns a formatted error string that includes the error type and message.
+// If an underlying error exists (e.Err), it will be included in the returned string.
 func (e *TransferError) Error() string {
 	if e.Err != nil {
 		return fmt.Sprintf("%s: %s: %v", e.Type, e.Message, e.Err)
@@ -34,6 +37,10 @@ func (e *TransferError) Error() string {
 	return fmt.Sprintf("%s: %s", e.Type, e.Message)
 }
 
+// Unwrap implements the error unwrapping interface.
+// It returns the underlying error stored in TransferError.Err,
+// allowing this error to work with errors.Is and errors.As functions
+// for error chain traversal.
 func (e *TransferError) Unwrap() error {
 	return e.Err
 }

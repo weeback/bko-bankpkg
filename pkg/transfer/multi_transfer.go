@@ -7,6 +7,31 @@ import (
 	"go.uber.org/zap"
 )
 
+// MultiTransfer handles the transfer of a single pack in a concurrent environment with queue management.
+// It validates the input pack, checks the partner queue status, and either processes the transfer
+// immediately or queues it based on the current queue state.
+//
+// Parameters:
+//   - ctx: Context for the operation, which should contain a logger
+//   - result: Pointer to store the response from the partner
+//   - data: Pack containing the payload and metadata for transfer
+//
+// Returns:
+//   - bool: true if the transfer was processed immediately, false if queued or failed
+//   - error: nil on success, or one of:
+//   - ErrPackValidation if pack is nil or validation fails
+//   - ErrQueueOccupied if all slots are occupied
+//   - ErrQueueBusy if queuing times out
+//   - ErrTransferFailed if payload sending fails
+//
+// The function handles three queue states:
+//   - "OCCUPIED": All slots are taken, returns error immediately
+//   - "BUSY": Some slots are available, queues the request
+//   - Otherwise: Processes the transfer immediately
+//
+// Deprecated: MultiTransfer is deprecated and will be removed in a future version.
+// Use MultiTransferWaitCallback instead, which provides better handling of concurrent transfers
+// and callback-based response handling.
 func (t *transfer) MultiTransfer(ctx context.Context, result any, data *Pack) (bool, error) {
 
 	if data == nil {
@@ -61,6 +86,30 @@ func (t *transfer) MultiTransfer(ctx context.Context, result any, data *Pack) (b
 	return true, nil
 }
 
+// MultiTransferWaitCallback processes multiple packs in a concurrent environment with callback functionality.
+// It validates each pack in the input slice and queues them for processing. For each pack, the provided
+// callback function will be called upon completion or error.
+//
+// Parameters:
+//   - ctx: Context for the operation, which should contain a logger
+//   - callback: Function to be called for each pack after processing or on error.
+//     The callback receives:
+//   - id: The pack ID
+//   - payloadResponse: Response bytes from successful processing
+//   - execError: Any error that occurred during processing
+//   - data: Slice of Packs to be processed
+//
+// Returns:
+//   - error: nil on successful queueing of all packs, or:
+//   - ErrPackValidation if the pack slice is empty or validation fails for any pack
+//
+// The function will:
+//  1. Validate all packs before processing
+//  2. For each pack:
+//     - Set the provided callback or use a no-op callback if nil
+//     - Queue the pack for processing
+//     - If queueing fails, execute callback with ErrQueueBusy
+//  3. Continue processing remaining packs even if some fail
 func (t *transfer) MultiTransferWaitCallback(ctx context.Context, callback func(id string, payloadResponse []byte, execError error) error, data []Pack) error {
 	if len(data) == 0 {
 		return NewError(ErrPackValidation, "empty pack list", nil)
@@ -100,8 +149,7 @@ func (t *transfer) MultiTransferWaitCallback(ctx context.Context, callback func(
 				Warn("timeout waiting for slot in multi transfer mode")
 
 				// Call the callback with the error
-			go pack.callback(pack.ID, nil, NewError(ErrQueueBusy, "queue operation timed out", nil))
-			continue
+			go pack.callback(pack.ID, nil, NewError(ErrQueueBusy, "queue operation timed out", err))
 		}
 	}
 

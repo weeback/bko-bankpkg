@@ -53,67 +53,86 @@ type transfer struct {
 	once        sync.Once
 }
 
+// addQueueMultiTransfer adds a pack to the multi transfer queue for asynchronous processing.
+// On first call, it initializes the queue with a capacity based on max concurrent settings
+// (minimum 2) and starts the queue processor goroutine. For subsequent calls, it attempts
+// to add the pack to the existing queue.
+//
+// If the queue is not initialized (nil), it attempts re-initialization. The function includes
+// timeout protection to avoid indefinite blocking when the queue is full.
+//
+// Parameters:
+//   - val: The pack to be queued. If nil, logs an error and returns nil.
+//
+// Returns:
+//   - error: Returns fmt.Errorf if the queue is full after timeout, nil otherwise.
 func (t *transfer) addQueueMultiTransfer(val *Pack) error {
-	// Validate input first
+
+	t.once.Do(func() {
+		t.mu.Lock()
+		defer t.mu.Unlock()
+		// Set max to half of partner's max concurrent, minimum 2
+		if t.max > 0 {
+			t.queue = make(chan *Pack, t.max)
+			t.queueState = 0
+		} else {
+			t.queue = make(chan *Pack, 2)
+			t.queueState = 0
+		}
+		// Start the queue processor
+		go t.queueMultiTransferProcess()
+	})
+
+	entry := logger.NewEntry().With(
+		zap.String(logger.KeyFunctionName, "addQueueMultiTransfer"),
+	)
+
+	// Validate input
 	if val == nil {
-		logger.NewEntry().Error("attempted to queue nil pack")
+		entry.Error("attempted to queue nil pack")
 		return nil
 	}
 
-	t.mu.Lock()
-
-	// Initialize queue if not already done
+	// If queue is not initialized, re-initialize
 	if t.queue == nil {
-		// Set max to half of partner's max concurrent, minimum 2
-		size := t.max
-		if size <= 0 {
-			size = 2
-		}
-		t.queue = make(chan *Pack, size)
+		// Queue is not initialized, should not happen
+		entry.Error("queue is not initialized in addQueueMultiTransfer")
+
+		t.once = sync.Once{} // Reset once to allow re-initialization
 		t.queueState = 0
-		t.once = sync.Once{}             // Reset once to allow restart if needed
-		go t.queueMultiTransferProcess() // Start the processor
+
+		return t.addQueueMultiTransfer(val) // Retry adding to queue
 	}
 
-	t.mu.Unlock()
-
-	// Wait for queue processor to start
-	startTime := time.Now()
-	for time.Since(startTime) < QueueTimeout {
-		t.mu.Lock()
-		if t.queueState == 1 {
-			t.mu.Unlock()
-			break
-		}
-		t.mu.Unlock()
-		time.Sleep(50 * time.Millisecond)
-	}
-
-	t.mu.Lock()
-	currentQueue := t.queue
-	t.mu.Unlock()
-
-	// If queue still isn't running, return error
-	if currentQueue == nil {
-		return fmt.Errorf("queue initialization failed")
-	}
-
-	// Attempt to add to queue with timeout
+	// Attempt to add to queue with timeout to avoid blocking indefinitely
 	select {
-	case currentQueue <- val:
-		logger.NewEntry().Info("queued pack",
+	case t.queue <- val:
+		entry.Info("re-queued pack in multiQueueProcess",
 			zap.String("pack_id", val.ID),
 			zap.Int("retry", val.retry),
 			zap.String(logger.KeyFunctionName, "addQueueMultiTransfer"))
-		return nil
 	case <-time.After(QueueTimeout):
-		logger.NewEntry().Warn("dropped pack due to full queue",
+		entry.Warn("dropped pack due to full queue in addQueueMultiTransfer",
 			zap.String("pack_id", val.ID),
 			zap.String(logger.KeyFunctionName, "addQueueMultiTransfer"))
 		return fmt.Errorf("dropped pack due to full queue")
 	}
+
+	return nil
 }
 
+// queueMultiTransferProcess handles the processing of queued transfer packs in a concurrent-safe manner.
+// It implements the following features:
+//   - Ensures single instance execution using mutex locking
+//   - Implements panic recovery to maintain queue processing stability
+//   - Processes queued packs with the following checks:
+//   - Drops packs that exceed maxLiveTime
+//   - Implements retry backoff using MultiTransferWait
+//   - Requeues packs that need retry with updated retry timestamps
+//   - Forwards valid packs to postOrRetryMultiTransfer for processing
+//
+// The function automatically resets its state and allows reinitialization on completion or panic,
+// ensuring continuous queue processing capability.
 func (t *transfer) queueMultiTransferProcess() {
 	// Ensure only one instance is running
 	t.mu.Lock()
@@ -131,12 +150,15 @@ func (t *transfer) queueMultiTransferProcess() {
 
 	t.mu.Unlock()
 
+	entry := logger.NewEntry().With(
+		zap.String(logger.KeyFunctionName, "queueMultiTransferProcess"),
+	)
+
 	// Handle errors when processing the queue
 	defer func() {
 		if r := recover(); r != nil {
-			logger.NewEntry().Error("recovered from panic in multiQueueProcess",
-				zap.Any("recover", r),
-				zap.String(logger.KeyFunctionName, "queueMultiTransferProcess"))
+			entry.Error("recovered from panic in multiQueueProcess",
+				zap.Any("recover", r))
 		}
 		// Restart the processor by resetting once
 		t.mu.Lock()
@@ -148,11 +170,10 @@ func (t *transfer) queueMultiTransferProcess() {
 	for q := range currentQueue {
 		// Drop old packs
 		if d := time.Since(q.CreatedAt); d > t.maxLiveTime {
-			logger.NewEntry().Warn("dropping old pack in multiQueueProcess",
+			entry.Warn("dropping old pack in multiQueueProcess",
 				zap.String("pack_id", q.ID),
 				zap.String("duration", d.String()),
-				zap.Int("retries", q.retry),
-				zap.String(logger.KeyFunctionName, "queueMultiTransferProcess"))
+				zap.Int("retries", q.retry))
 			continue
 		}
 		// Skip if recently retried
@@ -162,11 +183,10 @@ func (t *transfer) queueMultiTransferProcess() {
 			// Re-add to queue for retry
 			go func(p *Pack) {
 				if err := t.addQueueMultiTransfer(p); err != nil {
-					logger.NewEntry().Info("re-queued pack in multiQueueProcess",
+					entry.Info("re-queued pack in multiQueueProcess",
 						zap.Error(err),
 						zap.String("pack_id", p.ID),
-						zap.Int("retry", p.retry),
-						zap.String(logger.KeyFunctionName, "queueMultiTransferProcess"))
+						zap.Int("retry", p.retry))
 				}
 			}(q)
 			// Continue to next pack
@@ -178,6 +198,24 @@ func (t *transfer) queueMultiTransferProcess() {
 	}
 }
 
+// postOrRetryMultiTransfer handles the posting of a data pack to a partner service with retry capability.
+// It implements the following features:
+//   - Monitors partner queue status and handles busy/occupied states
+//   - Implements retry mechanism for failed transfers
+//   - Manages timeouts for post operations
+//   - Processes responses through callbacks
+//   - Provides comprehensive logging of transfer states
+//
+// Parameters:
+//   - q: The Pack containing the payload and callback for processing
+//   - timeout: Maximum duration to wait for the post operation to complete
+//
+// The function will:
+// 1. Check partner queue status
+// 2. If partner is busy, increment retry count and re-queue the pack
+// 3. If partner is available, attempt to post the payload
+// 4. On failure, increment retry count and re-queue
+// 5. On success, process response through callback if provided
 func (t *transfer) postOrRetryMultiTransfer(q *Pack, timeout time.Duration) {
 
 	// Create a logger entry with pack ID

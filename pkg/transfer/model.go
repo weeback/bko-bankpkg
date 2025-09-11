@@ -33,6 +33,14 @@ type Pack struct {
 	retriedAt time.Time
 }
 
+// Fill validates and initializes a Pack instance with default values.
+// It performs the following operations:
+// - Validates that the Pack instance and its Payload are not nil
+// - Generates a UUID-based ID if not already set
+// - Sets a no-op callback function if none is provided
+// - Sets CreatedAt to current time if not already set
+//
+// Returns an error if the Pack is nil or has no Payload.
 func (p *Pack) Fill() error {
 	if p == nil {
 		return NewError(ErrPackValidation, "pack cannot be nil", nil)

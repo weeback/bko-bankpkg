@@ -8,6 +8,19 @@ import (
 	"go.uber.org/zap"
 )
 
+// SingleTransfer performs a single transfer operation by sending a payload to a partner.
+// It validates the input data, checks queue availability, and processes the transfer.
+//
+// Parameters:
+//   - ctx: The context for the transfer operation
+//   - result: A pointer to store the transfer response
+//   - data: The Pack containing the payload and transfer details
+//
+// Returns:
+//   - error: ErrPackValidation if data validation fails
+//   - error: ErrQueueOccupied if all partner slots are occupied
+//   - error: ErrTransferFailed if payload transmission fails
+//   - nil: on successful transfer
 func (t *transfer) SingleTransfer(ctx context.Context, result any, data *Pack) error {
 	// Validate and fill data input
 	if err := data.Fill(); err != nil {
