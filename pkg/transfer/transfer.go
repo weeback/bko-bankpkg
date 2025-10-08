@@ -50,6 +50,9 @@ type transfer struct {
 	maxLiveTime time.Duration
 	mu          sync.Mutex
 	once        sync.Once
+
+	// Retry queue infrastructure
+	retryQueue chan *Pack
 }
 
 // addQueueMultiTransfer adds a pack to the multi transfer queue for asynchronous processing.
@@ -78,8 +81,13 @@ func (t *transfer) addQueueMultiTransfer(val *Pack) error {
 			t.queue = make(chan *Pack, 2)
 			t.queueState = 0
 		}
+		// Initialize retry queue with same capacity
+		t.retryQueue = make(chan *Pack, t.max*2) // Double capacity for retries
+
 		// Start the queue processor
 		go t.queueMultiTransferProcess()
+		// Start the retry queue processor
+		go t.retryQueueProcessor()
 	})
 
 	entry := logger.NewEntry().With(
@@ -189,25 +197,60 @@ func (t *transfer) queueMultiTransferProcess() {
 			go q.callback(q.ID, nil, NewError(ErrPackExpired, "pack expired", nil))
 			continue
 		}
-		// Skip if recently retried
+		// Skip if recently retried - add to retry queue instead of blocking
 		if d := time.Since(q.retriedAt); d < MultiTransferWait {
-			// Wait before retrying
-			time.Sleep(MultiTransferWait - d)
-			// Re-add to queue - no retry count increment
-			go func(p *Pack) {
-				if err := t.addQueueMultiTransfer(p); err != nil {
-					entry.Info("re-queued pack in multiQueueProcess",
-						zap.Error(err),
-						zap.String("pack_id", p.ID),
-						zap.Int("retry", p.retry))
-				}
-			}(q)
-			// Continue to next pack
+			// Retry logic - use retry queue instead of goroutine
+			entry.Info("pack recently retried, adding to retry queue in multiQueueProcess",
+				zap.String("pack_id", q.ID),
+				zap.Int("retry", q.retry),
+				zap.Duration("since_last_retry", d))
+			// Add to retry queue for delayed processing
+			select {
+			case t.retryQueue <- q:
+				entry.Info("pack added to retry queue",
+					zap.String("pack_id", q.ID),
+					zap.Int("retry", q.retry),
+					zap.Duration("delay", MultiTransferWait-d))
+			default:
+				// Retry queue full, fallback to immediate processing
+				entry.Warn("retry queue full, processing immediately",
+					zap.String("pack_id", q.ID))
+				t.postOrRetryMultiTransfer(q, RequestTimeout)
+			}
 			continue
 		}
 
 		// Send the payload to the partner
 		t.postOrRetryMultiTransfer(q, RequestTimeout)
+	}
+}
+
+// retryQueueProcessor handles delayed retry processing without blocking main queue
+func (t *transfer) retryQueueProcessor() {
+	entry := logger.NewEntry().With(
+		zap.String(logger.KeyFunctionName, "retryQueueProcessor"),
+	)
+
+	defer func() {
+		if r := recover(); r != nil {
+			entry.Error("recovered from panic in retryQueueProcessor",
+				zap.Any("recover", r))
+		}
+	}()
+
+	for pack := range t.retryQueue {
+		// Calculate delay time
+		if d := MultiTransferWait - time.Since(pack.retriedAt); d > 0 {
+			// Wait for the calculated delay
+			time.Sleep(d)
+		}
+		// Add back to main queue
+		if err := t.addQueueMultiTransfer(pack); err != nil {
+			entry.Info("retry queue failed to re-add pack",
+				zap.Error(err),
+				zap.String("pack_id", pack.ID),
+				zap.Int("retry", pack.retry))
+		}
 	}
 }
 
@@ -289,19 +332,22 @@ func (t *transfer) postOrRetryMultiTransfer(q *Pack, timeout time.Duration) {
 			zap.String("pack_id", q.ID),
 			zap.Error(err),
 			zap.String(logger.KeyFunctionName, "postOrRetryMultiTransfer"))
-		// Retry logic
+		// Retry logic - use retry queue instead of goroutine
 		q.retry++
 		q.retriedAt = time.Now()
-		// Re-add to queue for retry
-		go func(p *Pack) {
-			if err := t.addQueueMultiTransfer(p); err != nil {
-				entry.Info("re-queued pack in multiQueueProcess",
-					zap.Error(err),
-					zap.String("pack_id", p.ID),
-					zap.Int("retry", p.retry),
-					zap.String(logger.KeyFunctionName, "postOrRetryMultiTransfer"))
-			}
-		}(q)
+
+		// Add to retry queue for delayed processing
+		select {
+		case t.retryQueue <- q:
+			entry.Info("pack added to retry queue after failed POST",
+				zap.String("pack_id", q.ID),
+				zap.Int("retry", q.retry))
+		default:
+			// Retry queue full, call callback with error
+			entry.Warn("retry queue full, calling callback with error",
+				zap.String("pack_id", q.ID))
+			go q.callback(q.ID, nil, NewError(ErrQueueBusy, "retry queue full", err))
+		}
 		return
 	}
 	// Log success
