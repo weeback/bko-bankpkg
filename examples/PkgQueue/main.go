@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"log"
+	"os"
 	"sync"
 	"time"
 
@@ -14,6 +15,8 @@ import (
 // Then, use the package in your code.
 // Finally, run this example with `go run examples/PkgQueue/main.go`
 func main() {
+
+	os.Setenv("DEPLOYMENT_ENVIRONMENT", "development")
 
 	// Tạo một HTTP queue mới
 	multiDestinationQueue := queue.NewMultiDestinationQueue("api-service")
@@ -28,7 +31,7 @@ func main() {
 
 	transferQueue := transfer.NewTransfer(multiDestinationQueue)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	// Tạo một gói dữ liệu để gửi
@@ -49,7 +52,6 @@ func main() {
 	// Đánh dấu số lượng gói dữ liệu cần chờ
 	wg.Add(len(packs))
 
-	defer wg.Wait()
 	// Sử dụng callback để nhận kết quả hoặc lỗi
 	callbackFunc := func(id string, payloadResponse []byte, execError error) {
 		// Đánh dấu hoàn thành một gói dữ liệu
@@ -58,7 +60,7 @@ func main() {
 		processResponse(id, payloadResponse, execError)
 	}
 	// Gửi một gói dữ liệu sử dụng MultiTransfer (không đợi, sử dụng callback để nhận kết quả)
-	if err := transferQueue.MultiTransferWaitCallback(ctx, callbackFunc, "", packs); err != nil {
+	if err := transferQueue.MultiTransferWaitCallback(ctx, callbackFunc, "https://googleaaa.com/khong-ton-tai", packs); err != nil {
 		log.Printf("[ERR] MultiTransfer error: %v", err)
 	}
 

@@ -19,6 +19,11 @@ const (
 	ErrQueueTimeout ErrorType = "QUEUE_TIMEOUT"
 	// ErrDestinationNotSet indicates when the destination URL is not set
 	ErrDestinationNotSet ErrorType = "DESTINATION_NOT_SET"
+
+	// ErrMaxRetriesExceeded indicates when a pack has exceeded the maximum number of retries
+	ErrMaxRetriesExceeded ErrorType = "MAX_RETRIES_EXCEEDED"
+	// ErrPackRequeued indicates when a pack is requeued for processing
+	ErrPackExpired ErrorType = "PACK_EXPIRED"
 )
 
 // TransferError is a custom error type that provides detailed information about

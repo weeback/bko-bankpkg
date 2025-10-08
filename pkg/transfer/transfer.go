@@ -120,6 +120,11 @@ func (t *transfer) addQueueMultiTransfer(val *Pack) error {
 		entry.Warn("dropped pack due to full queue in addQueueMultiTransfer",
 			zap.String("pack_id", val.ID),
 			zap.String(logger.KeyFunctionName, "addQueueMultiTransfer"))
+		
+		// Call callback with queue full error
+		if val.callback != nil {
+			val.callback(val.ID, nil, NewError(ErrQueueBusy, "queue is full", nil))
+		}
 		return fmt.Errorf("dropped pack due to full queue")
 	}
 
@@ -178,6 +183,8 @@ func (t *transfer) queueMultiTransferProcess() {
 			entry.Warn("dropping pack due to max retries exceeded in multiQueueProcess",
 				zap.String("pack_id", q.ID),
 				zap.Int("retries", q.retry))
+
+			q.callback(q.ID, nil, NewError(ErrMaxRetriesExceeded, "max retries exceeded", nil))
 			continue
 		}
 		// Drop old packs
@@ -186,6 +193,8 @@ func (t *transfer) queueMultiTransferProcess() {
 				zap.String("pack_id", q.ID),
 				zap.String("duration", d.String()),
 				zap.Int("retries", q.retry))
+
+			q.callback(q.ID, nil, NewError(ErrPackExpired, "pack expired", nil))
 			continue
 		}
 		// Skip if recently retried
