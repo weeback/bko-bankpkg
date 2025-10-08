@@ -152,17 +152,25 @@ func (q *httpQueue) GetConcurrentStatus() (free int, total int, status string) {
 }
 
 func (q *httpQueue) Get(ctx context.Context, v any, opts ...Option) error {
-	log := logger.GetLoggerFromContext(ctx)
+	log := logger.GetLoggerFromContext(ctx).With(
+		zap.String(logger.KeyFunctionName, "httpQueue.Get"),
+		zap.String("destination", q.templateURL.String()))
 
 	// validate data before processing
 	if reflect.TypeOf(v).Kind() != reflect.Pointer {
 		return fmt.Errorf("v must be a pointer")
 	}
+	// logging debug
+	defer func(t time.Time) {
+		if r := recover(); r != nil {
+			log.Error("panic recovered", zap.Any("error", r))
+		}
+		log.Debug("HTTP-QUEUE", zap.String("httpMethod", http.MethodGet), zap.Duration("duration", time.Since(t)))
+	}(time.Now())
 
 	var (
 		opt = WithMultiOptions(opts...)
 	)
-	log.Debug("httpQueue.Get() called")
 
 	select {
 	case r, ok := <-q.queue.listen(http.MethodGet, q.templateURL.String(), nil, opt):
@@ -195,17 +203,23 @@ func (q *httpQueue) Get(ctx context.Context, v any, opts ...Option) error {
 
 func (q *httpQueue) Post(ctx context.Context, v any, body []byte, opts ...Option) error {
 	log := logger.GetLoggerFromContext(ctx).With(
-		zap.String(logger.KeyFunctionName, "httpQueue.Post"))
+		zap.String(logger.KeyFunctionName, "httpQueue.Post"),
+		zap.String("destination", q.templateURL.String()))
 
 	// validate data before processing
 	if reflect.TypeOf(v).Kind() != reflect.Pointer {
 		return fmt.Errorf("v must be a pointer")
 	}
-
+	// logging debug
+	defer func(t time.Time) {
+		if r := recover(); r != nil {
+			log.Error("panic recovered", zap.Any("error", r))
+		}
+		log.Debug("HTTP-QUEUE", zap.String("httpMethod", http.MethodPost), zap.Duration("duration", time.Since(t)))
+	}(time.Now())
 	var (
 		opt = WithMultiOptions(opts...)
 	)
-	log.Debug("called")
 
 	select {
 	case r, ok := <-q.queue.listen(http.MethodPost, q.templateURL.String(), body, opt):
@@ -239,12 +253,20 @@ func (q *httpQueue) Post(ctx context.Context, v any, body []byte, opts ...Option
 
 func (q *httpQueue) PostWithFunc(ctx context.Context, fn func([]byte) error, body []byte, opts ...Option) error {
 	log := logger.GetLoggerFromContext(ctx).With(
-		zap.String(logger.KeyFunctionName, "httpQueue.PostWith"))
+		zap.String(logger.KeyFunctionName, "httpQueue.PostWithFunc"),
+		zap.String("destination", q.templateURL.String()))
+
+	// logging debug
+	defer func(t time.Time) {
+		if r := recover(); r != nil {
+			log.Error("panic recovered", zap.Any("error", r))
+		}
+		log.Debug("HTTP-QUEUE", zap.String("httpMethod", http.MethodPost), zap.Duration("duration", time.Since(t)))
+	}(time.Now())
 
 	var (
 		opt = WithMultiOptions(opts...)
 	)
-	log.Debug("called")
 
 	select {
 	case r, ok := <-q.queue.listen(http.MethodPost, q.templateURL.String(), body, opt):

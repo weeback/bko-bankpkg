@@ -17,6 +17,8 @@ const (
 	ErrTransferFailed ErrorType = "TRANSFER_FAILED"
 	// ErrQueueTimeout indicates queue operation timeout
 	ErrQueueTimeout ErrorType = "QUEUE_TIMEOUT"
+	// ErrDestinationNotSet indicates when the destination URL is not set
+	ErrDestinationNotSet ErrorType = "DESTINATION_NOT_SET"
 )
 
 // TransferError is a custom error type that provides detailed information about

@@ -16,15 +16,7 @@ import (
 type Transfer interface {
 	// SingleTransfer performs a one-time transfer operation for a given data pack.
 	// It blocks until the transfer is complete or fails.
-	SingleTransfer(ctx context.Context, result any, data *Pack) error
-
-	// MultiTransfer handles transfer operations in a concurrent manner, with support
-	// for queuing and retries. It may return immediately if the transfer is queued.
-	//
-	// Deprecated: MultiTransfer is deprecated and will be removed in a future version. Use
-	// MultiTransferWaitCallback instead, which provides better handling of concurrent
-	// transfers and callback-based response handling.
-	MultiTransfer(ctx context.Context, result any, data *Pack) (bool, error)
+	SingleTransfer(ctx context.Context, result any, url string, data *Pack) error
 
 	// MultiTransferWaitCallback performs batch transfer operations with callback-based results handling.
 	// It processes multiple packs concurrently and executes the provided callback for each completed transfer.
@@ -33,25 +25,28 @@ type Transfer interface {
 	// - payloadResponse: the response data from the transfer
 	// - execError: any error that occurred during the transfer
 	// Returns an error if the batch operation fails to start or if context is cancelled.
-	MultiTransferWaitCallback(ctx context.Context, callback func(id string, payloadResponse []byte, execError error) error, data []Pack) error
+	MultiTransferWaitCallback(ctx context.Context, callback func(id string, payloadResponse []byte, execError error),
+		url string, data []*Pack) error
 }
 
 // NewTransfer creates a new Transfer instance with the provided HTTP partner.
 // It initializes the transfer with default concurrent limits and live time settings.
-func NewTransfer(partner queue.HTTP) Transfer {
+func NewTransfer(partner queue.MultiDestination) Transfer {
 	return &transfer{
 		partner:     partner,
 		max:         DefaultMaxConcurrent, // default max concurrent for multi transfer
+		maxRetries:  DefaultMaxRetries,    // default max retries for a pack in multi transfer
 		maxLiveTime: DefaultMaxLiveTime,   // default max live time for a pack in multi transfer
 	}
 }
 
 type transfer struct {
-	partner queue.HTTP
+	partner queue.MultiDestination
 
 	queue       chan *Pack
 	queueState  int // 0: not started, 1: running
 	max         int
+	maxRetries  int
 	maxLiveTime time.Duration
 	mu          sync.Mutex
 	once        sync.Once
@@ -107,6 +102,12 @@ func (t *transfer) addQueueMultiTransfer(val *Pack) error {
 
 		return t.addQueueMultiTransfer(val) // Retry adding to queue
 	}
+
+	//
+	// Sleep a MultiTransferWait value from present time before retrying
+	// if d := time.Since(present); d < MultiTransferWait {
+	// 	time.Sleep(MultiTransferWait - d)
+	// }
 
 	// Attempt to add to queue with timeout to avoid blocking indefinitely
 	select {
@@ -172,6 +173,13 @@ func (t *transfer) queueMultiTransferProcess() {
 	}()
 
 	for q := range currentQueue {
+		// Drop packs that exceed max retries
+		if q.retry > t.maxRetries {
+			entry.Warn("dropping pack due to max retries exceeded in multiQueueProcess",
+				zap.String("pack_id", q.ID),
+				zap.Int("retries", q.retry))
+			continue
+		}
 		// Drop old packs
 		if d := time.Since(q.CreatedAt); d > t.maxLiveTime {
 			entry.Warn("dropping old pack in multiQueueProcess",
@@ -182,9 +190,9 @@ func (t *transfer) queueMultiTransferProcess() {
 		}
 		// Skip if recently retried
 		if d := time.Since(q.retriedAt); d < MultiTransferWait {
-			// Retry logic to avoid rapid retries
-			q.retriedAt = time.Now()
-			// Re-add to queue for retry
+			// Wait before retrying
+			time.Sleep(MultiTransferWait - d)
+			// Re-add to queue - no retry count increment
 			go func(p *Pack) {
 				if err := t.addQueueMultiTransfer(p); err != nil {
 					entry.Info("re-queued pack in multiQueueProcess",
@@ -211,6 +219,7 @@ func (t *transfer) queueMultiTransferProcess() {
 //   - Provides comprehensive logging of transfer states
 //
 // Parameters:
+//   - destURL: The destination URL for the post operation
 //   - q: The Pack containing the payload and callback for processing
 //   - timeout: Maximum duration to wait for the post operation to complete
 //
@@ -262,15 +271,19 @@ func (t *transfer) postOrRetryMultiTransfer(q *Pack, timeout time.Duration) {
 			return nil
 		}
 		// Call the callback with the response bytes
-		return q.callback(q.ID, b, nil)
+		q.callback(q.ID, b, nil)
+		return nil
 	}
+
+	// Accept status codes for which we won't retry
+	opt := queue.AcceptStatus(400, 403, 404)
 
 	// Context with timeout for the post operation
 	ctx, cancel := context.WithTimeout(context.TODO(), timeout)
 	defer cancel()
 
 	// Send the payload to the partner
-	if err := t.partner.PostWithFunc(ctx, postFunc, q.Payload); err != nil {
+	if err := t.partner.PostWithFunc(ctx, postFunc, q.GetDestinationURL(), q.Payload, opt); err != nil {
 		entry.Error("failed to send payload in multiQueueProcess",
 			zap.String("pack_id", q.ID),
 			zap.Error(err),
