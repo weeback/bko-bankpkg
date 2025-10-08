@@ -46,6 +46,10 @@ func main() {
 	// Tạo một danh sách các gói dữ liệu để gửi
 	packs := []*transfer.Pack{
 		{ID: "1", Payload: []byte("test payload"), CreatedAt: time.Now()},
+		{ID: "2", Payload: []byte("test payload"), CreatedAt: time.Now()},
+		{ID: "3", Payload: []byte("test payload"), CreatedAt: time.Now()},
+		{ID: "4", Payload: []byte("test payload"), CreatedAt: time.Now()},
+		{ID: "5", Payload: []byte("test payload"), CreatedAt: time.Now()},
 	}
 	// Bộ control kiểm tra kết quả trả về
 	wg := sync.WaitGroup{}

@@ -151,9 +151,7 @@ func (t *transfer) MultiTransferWaitCallback(ctx context.Context,
 			pack.callback = callback
 		} else {
 			// Fallback to no-op if callback is nil
-			pack.callback = func(id string, payloadResponse []byte, execError error) {
-				entry.Info("no-op callback executed", zap.String("pack_id", id))
-			}
+			pack.callback = defaultCallback
 		}
 		// Wait for a slot in the multiQueue
 		if err := t.addQueueMultiTransfer(pack); err != nil {

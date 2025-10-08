@@ -20,6 +20,12 @@ const (
 	MultiTransferWait    = 5 * time.Second
 )
 
+var defaultCallback = func(string, []byte, error) {
+    // No-op hoặc log minimal
+	logger.NewEntry().Info("no-op callback executed")
+}
+
+
 // Pack represents a data package that can be transferred, containing payload data
 // and metadata for tracking and retry mechanisms.
 type Pack struct {
@@ -64,9 +70,7 @@ func (p *Pack) Fill(destURL string) error {
 	}
 	// Set no-op callback if none provided
 	if p.callback == nil {
-		p.callback = func(string, []byte, error) {
-			logger.NewEntry().Info("no-op callback executed")
-		}
+		p.callback = defaultCallback
 	}
 	// auto fill ID and CreatedAt
 	if p.ID == "" {

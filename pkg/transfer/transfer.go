@@ -103,12 +103,6 @@ func (t *transfer) addQueueMultiTransfer(val *Pack) error {
 		return t.addQueueMultiTransfer(val) // Retry adding to queue
 	}
 
-	//
-	// Sleep a MultiTransferWait value from present time before retrying
-	// if d := time.Since(present); d < MultiTransferWait {
-	// 	time.Sleep(MultiTransferWait - d)
-	// }
-
 	// Attempt to add to queue with timeout to avoid blocking indefinitely
 	select {
 	case t.queue <- val:
@@ -120,11 +114,9 @@ func (t *transfer) addQueueMultiTransfer(val *Pack) error {
 		entry.Warn("dropped pack due to full queue in addQueueMultiTransfer",
 			zap.String("pack_id", val.ID),
 			zap.String(logger.KeyFunctionName, "addQueueMultiTransfer"))
-		
+
 		// Call callback with queue full error
-		if val.callback != nil {
-			val.callback(val.ID, nil, NewError(ErrQueueBusy, "queue is full", nil))
-		}
+		go val.callback(val.ID, nil, NewError(ErrQueueBusy, "queue is full", nil))
 		return fmt.Errorf("dropped pack due to full queue")
 	}
 
@@ -184,7 +176,7 @@ func (t *transfer) queueMultiTransferProcess() {
 				zap.String("pack_id", q.ID),
 				zap.Int("retries", q.retry))
 
-			q.callback(q.ID, nil, NewError(ErrMaxRetriesExceeded, "max retries exceeded", nil))
+			go q.callback(q.ID, nil, NewError(ErrMaxRetriesExceeded, "max retries exceeded", nil))
 			continue
 		}
 		// Drop old packs
@@ -194,7 +186,7 @@ func (t *transfer) queueMultiTransferProcess() {
 				zap.String("duration", d.String()),
 				zap.Int("retries", q.retry))
 
-			q.callback(q.ID, nil, NewError(ErrPackExpired, "pack expired", nil))
+			go q.callback(q.ID, nil, NewError(ErrPackExpired, "pack expired", nil))
 			continue
 		}
 		// Skip if recently retried
@@ -265,7 +257,7 @@ func (t *transfer) postOrRetryMultiTransfer(q *Pack, timeout time.Duration) {
 				Warn("timeout waiting for slot in multi transfer mode")
 
 			// Call the callback with the error
-			q.callback(q.ID, nil, NewError(ErrQueueBusy, "queue operation timed out", nil))
+			go q.callback(q.ID, nil, NewError(ErrQueueBusy, "queue operation timed out", nil))
 			return
 		}
 		// Successfully queued the pack for later processing.
@@ -280,7 +272,7 @@ func (t *transfer) postOrRetryMultiTransfer(q *Pack, timeout time.Duration) {
 			return nil
 		}
 		// Call the callback with the response bytes
-		q.callback(q.ID, b, nil)
+		go q.callback(q.ID, b, nil)
 		return nil
 	}
 
