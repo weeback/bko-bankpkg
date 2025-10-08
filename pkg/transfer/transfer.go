@@ -20,6 +20,10 @@ type Transfer interface {
 
 	// MultiTransfer handles transfer operations in a concurrent manner, with support
 	// for queuing and retries. It may return immediately if the transfer is queued.
+	//
+	// Deprecated: MultiTransfer is deprecated and will be removed in a future version. Use
+	// MultiTransferWaitCallback instead, which provides better handling of concurrent
+	// transfers and callback-based response handling.
 	MultiTransfer(ctx context.Context, result any, data *Pack) (bool, error)
 
 	// MultiTransferWaitCallback performs batch transfer operations with callback-based results handling.
