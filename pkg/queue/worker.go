@@ -38,7 +38,7 @@ type worker struct {
 //	starts the worker. It listens for incoming jobs and processes them.
 //
 // This function must be called in a goroutine.
-func (w *worker) init() *worker {
+func (w *worker) init() queueInter {
 
 	// the primary server must be only 1
 	if len(w.primaryServer) != 1 {
@@ -61,12 +61,6 @@ func (w *worker) init() *worker {
 	}()
 
 	return w
-}
-
-// GetMetrics returns nil for base worker implementation
-// The metrics worker implementation will override this
-func (w *worker) GetMetrics() *metrics.QueueMetrics {
-	return nil
 }
 
 func (w *worker) start() {
@@ -336,4 +330,19 @@ func (w *worker) listen(method string, fullURL string, body []byte, opt Option) 
 		}
 		return pack.recv
 	}
+}
+
+func (w *worker) getName() string {
+	return w.name
+}
+
+func (w *worker) getJobsLength() int64 {
+	n := len(w.jobs)
+	return int64(n)
+}
+
+// GetMetrics returns nil for base worker implementation
+// The metrics worker implementation will override this
+func (w *worker) GetMetrics() *metrics.QueueMetrics {
+	return nil
 }

@@ -22,12 +22,44 @@ var (
 )
 
 type queueInter interface {
+	init() queueInter
+	getName() string
+	getJobsLength() int64
 	setPriorityMode(mode Priority)
 	setTimeout(d time.Duration)
 	updateMaxConcurrent(maxConcurrent int)
 	getConcurrentStatus() (int, int, string)
 	listen(method string, fullURL string, body []byte, opt Option) <-chan *recv
 	GetMetrics() *metrics.QueueMetrics // Optional - implemented by metricsWorker
+}
+
+func bindPagodaQueue(queueName string) queueInter {
+	// TODO: implement pagoda queue
+	p := &pagoda{
+		worker: worker{
+			name:   queueName,
+			code:   0, // inactive
+			jobs:   make(chan *job, 1000),
+			signal: make(chan os.Signal, 1),
+			httpClient: func() *http.Client {
+				return &http.Client{
+					Transport: &http.Transport{
+						TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+					},
+					Timeout: 30 * time.Second,
+				}
+			},
+			timeout:       30 * time.Second,
+			maxConcurrent: 1000, // Default 1000 req/s
+			activeSem:     nil,  // Will be initialized when needed
+		},
+	}
+
+	// Wrap with metrics
+	mw := NewPagodaWithMetrics(p)
+
+	return mw.init()
+
 }
 
 func bindHttpQueue(name string, desc ...*url.URL) queueInter {

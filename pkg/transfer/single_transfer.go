@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/weeback/bko-bankpkg/pkg/logger"
+	"github.com/weeback/bko-bankpkg/pkg/queue"
 	"go.uber.org/zap"
 )
 
@@ -14,6 +15,7 @@ import (
 // Parameters:
 //   - ctx: The context for the transfer operation
 //   - result: A pointer to store the transfer response
+//   - destURL: The destination URL for the transfer, overriding any URL in the Pack
 //   - data: The Pack containing the payload and transfer details
 //
 // Returns:
@@ -21,9 +23,9 @@ import (
 //   - error: ErrQueueOccupied if all partner slots are occupied
 //   - error: ErrTransferFailed if payload transmission fails
 //   - nil: on successful transfer
-func (t *transfer) SingleTransfer(ctx context.Context, result any, data *Pack) error {
+func (t *transfer) SingleTransfer(ctx context.Context, result any, destURL string, data *Pack) error {
 	// Validate and fill data input
-	if err := data.Fill(); err != nil {
+	if err := data.Fill(destURL); err != nil {
 		return NewError(ErrPackValidation, "failed to validate and fill pack data", err)
 	}
 
@@ -36,15 +38,19 @@ func (t *transfer) SingleTransfer(ctx context.Context, result any, data *Pack) e
 			nil)
 	}
 
+	// Accept status codes for which we won't retry
+	opt := queue.AcceptStatus(400, 403, 404)
+
 	// Log queue status
 	logger.GetLoggerFromContext(ctx).Info("single transfer queue status",
 		zap.Int("free_slots", free),
 		zap.Int("total_slots", total),
 		zap.String("status", status),
+		zap.Any("options", opt),
 		zap.String(logger.KeyFunctionName, "SingleTransfer"))
 
 	// Send the payload to the partner
-	if err := t.partner.Post(ctx, result, data.Payload); err != nil {
+	if err := t.partner.Post(ctx, result, data.GetDestinationURL(), data.Payload, opt); err != nil {
 		return NewError(ErrTransferFailed,
 			fmt.Sprintf("failed to send payload for pack %s in single transfer mode", data.ID),
 			err)

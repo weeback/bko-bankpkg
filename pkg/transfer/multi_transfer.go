@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/weeback/bko-bankpkg/pkg/logger"
+	"github.com/weeback/bko-bankpkg/pkg/queue"
 	"go.uber.org/zap"
 )
 
@@ -14,6 +15,7 @@ import (
 // Parameters:
 //   - ctx: Context for the operation, which should contain a logger
 //   - result: Pointer to store the response from the partner
+//   - destURL: The destination URL for the transfer, overriding any URL in the Pack
 //   - data: Pack containing the payload and metadata for transfer
 //
 // Returns:
@@ -32,7 +34,7 @@ import (
 // Deprecated: MultiTransfer is deprecated and will be removed in a future version.
 // Use MultiTransferWaitCallback instead, which provides better handling of concurrent transfers
 // and callback-based response handling.
-func (t *transfer) MultiTransfer(ctx context.Context, result any, data *Pack) (bool, error) {
+func (t *transfer) MultiTransfer(ctx context.Context, result any, destURL string, data *Pack) (bool, error) {
 
 	if data == nil {
 		return false, NewError(ErrPackValidation, "pack cannot be nil", nil)
@@ -44,7 +46,7 @@ func (t *transfer) MultiTransfer(ctx context.Context, result any, data *Pack) (b
 	)
 
 	// Validate and fill data input
-	if err := data.Fill(); err != nil {
+	if err := data.Fill(destURL); err != nil {
 		entry.With(zap.Error(err)).
 			Error("failed to validate and fill pack data for multi transfer")
 		return false, NewError(ErrPackValidation, "failed to validate pack data", err)
@@ -77,8 +79,11 @@ func (t *transfer) MultiTransfer(ctx context.Context, result any, data *Pack) (b
 		return false, nil
 	}
 
+	// Accept status codes for which we won't retry
+	opt := queue.AcceptStatus(400, 403, 404)
+
 	// Send the payload to the partner
-	if err := t.partner.Post(ctx, result, data.Payload); err != nil {
+	if err := t.partner.Post(ctx, result, data.GetDestinationURL(), data.Payload, opt); err != nil {
 		entry.With(zap.Error(err)).
 			Error("failed to send payload in multi transfer mode")
 		return false, NewError(ErrTransferFailed, "failed to send payload", err)
@@ -91,12 +96,17 @@ func (t *transfer) MultiTransfer(ctx context.Context, result any, data *Pack) (b
 // callback function will be called upon completion or error.
 //
 // Parameters:
+//
 //   - ctx: Context for the operation, which should contain a logger
+//
 //   - callback: Function to be called for each pack after processing or on error.
 //     The callback receives:
-//   - id: The pack ID
-//   - payloadResponse: Response bytes from successful processing
-//   - execError: Any error that occurred during processing
+//     `id` is the pack ID,
+//     `payloadResponse` is response bytes from successful processing,
+//     `execError` is any error that occurred during processing.
+//
+//   - destURL: The destination URL for the transfer, overriding any URL in the Pack
+//
 //   - data: Slice of Packs to be processed
 //
 // Returns:
@@ -110,13 +120,15 @@ func (t *transfer) MultiTransfer(ctx context.Context, result any, data *Pack) (b
 //     - Queue the pack for processing
 //     - If queueing fails, execute callback with ErrQueueBusy
 //  3. Continue processing remaining packs even if some fail
-func (t *transfer) MultiTransferWaitCallback(ctx context.Context, callback func(id string, payloadResponse []byte, execError error) error, data []Pack) error {
+func (t *transfer) MultiTransferWaitCallback(ctx context.Context,
+	callback func(id string, payloadResponse []byte, execError error),
+	destURL string, data []*Pack) error {
 	if len(data) == 0 {
 		return NewError(ErrPackValidation, "empty pack list", nil)
 	}
 	// Validate all packs first
 	for _, pack := range data {
-		if err := pack.Fill(); err != nil {
+		if err := pack.Fill(destURL); err != nil {
 			logger.GetLoggerFromContext(ctx).With(
 				zap.String(logger.KeyFunctionName, "MultiTransferWaitCallback"),
 				zap.Error(err),
@@ -139,12 +151,10 @@ func (t *transfer) MultiTransferWaitCallback(ctx context.Context, callback func(
 			pack.callback = callback
 		} else {
 			// Fallback to no-op if callback is nil
-			pack.callback = func(id string, payloadResponse []byte, execError error) error {
-				return nil
-			}
+			pack.callback = defaultCallback
 		}
 		// Wait for a slot in the multiQueue
-		if err := t.addQueueMultiTransfer(&pack); err != nil {
+		if err := t.addQueueMultiTransfer(pack); err != nil {
 			entry.With(zap.Error(err)).
 				Warn("timeout waiting for slot in multi transfer mode")
 

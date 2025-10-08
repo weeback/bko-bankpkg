@@ -17,6 +17,18 @@ func lazyGuys() queueInter {
 // And them not process any thing.
 type lazy struct{}
 
+func (*lazy) init() queueInter {
+	return &lazy{}
+}
+
+func (*lazy) getName() string {
+	return "lazy"
+}
+
+func (*lazy) getJobsLength() int64 {
+	return 0
+}
+
 func (*lazy) setPriorityMode(mode Priority) {}
 
 func (*lazy) setTimeout(d time.Duration) {}
